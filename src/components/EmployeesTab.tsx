@@ -27,20 +27,20 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
       <h2 className="text-base font-semibold text-slate-900 mb-4">Nhân viên</h2>
 
       {/* Thêm nhân viên mới */}
-      <div className="flex flex-wrap items-end gap-3 mb-5 rounded bg-slate-50 border border-slate-200 p-3">
-        <label className="flex flex-col grow min-w-[140px]">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3 mb-5 rounded bg-slate-50 border border-slate-200 p-3">
+        <label className="flex flex-col sm:flex-1 sm:min-w-[140px]">
           <span className="text-xs text-slate-600 mb-1">Tên</span>
           <input
-            className={inputClass}
+            className={`${inputClass} w-full`}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Tên nhân viên"
           />
         </label>
-        <label className="flex flex-col">
+        <label className="flex flex-col sm:w-40">
           <span className="text-xs text-slate-600 mb-1">Hình thức làm việc</span>
           <select
-            className={inputClass}
+            className={`${inputClass} w-full`}
             value={type}
             onChange={(e) => setType(e.target.value as EmploymentType)}
           >
@@ -48,13 +48,13 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
             <option value="TEILZEIT">Bán thời gian</option>
           </select>
         </label>
-        <label className="flex flex-col">
+        <label className="flex flex-col sm:w-32">
           <span className="text-xs text-slate-600 mb-1">Giờ định mức</span>
           <input
             type="number"
             min={0}
             step={1}
-            className={`${inputClass} w-28`}
+            className={`${inputClass} w-full`}
             value={hours}
             onChange={(e) => setHours(Number(e.target.value))}
           />
@@ -64,63 +64,57 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
             addEmployee(name, type, hours);
             setName("");
           }}
-          className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800"
+          className="rounded bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800"
         >
           Thêm nhân viên
         </button>
       </div>
 
-      {/* Danh sách */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[560px]">
-          <thead>
-            <tr className="text-left text-slate-500 border-b border-slate-200">
-              <th className="py-2 pr-3 font-medium">Tên</th>
-              <th className="py-2 pr-3 font-medium">Hình thức</th>
-              <th className="py-2 pr-3 font-medium">Giờ định mức</th>
-              <th className="py-2 pr-3 font-medium">Phân bổ ca</th>
-              <th className="py-2 pr-3 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {schedule.employees.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-400">
-                  Chưa có nhân viên. Thêm nhân viên ở khung phía trên.
-                </td>
-              </tr>
-            )}
-            {schedule.employees.map((emp) => {
-              const info = splitInfo(emp.targetMinutes / 60, emp.employmentType);
-              return (
-                <tr key={emp.id} className="border-b border-slate-100">
-                  <td className="py-2 pr-3">
-                    <input
-                      className={inputClass}
-                      value={emp.name}
-                      onChange={(e) => updateEmployee(emp.id, { name: e.target.value })}
-                    />
-                  </td>
-                  <td className="py-2 pr-3">
-                    <select
-                      className={inputClass}
-                      value={emp.employmentType}
-                      onChange={(e) =>
-                        updateEmployee(emp.id, {
-                          employmentType: e.target.value as EmploymentType,
-                        })
-                      }
-                    >
-                      <option value="VOLLZEIT">Toàn thời gian</option>
-                      <option value="TEILZEIT">Bán thời gian</option>
-                    </select>
-                  </td>
-                  <td className="py-2 pr-3">
+      {/* Danh sách – thẻ xếp dọc trên mobile, 1 dòng trên màn lớn (không cuộn ngang) */}
+      {schedule.employees.length === 0 ? (
+        <div className="py-6 text-center text-slate-400">
+          Chưa có nhân viên. Thêm nhân viên ở khung phía trên.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {schedule.employees.map((emp) => {
+            const info = splitInfo(emp.targetMinutes / 60, emp.employmentType);
+            return (
+              <div
+                key={emp.id}
+                className="rounded-lg border border-slate-200 p-3 flex flex-col sm:flex-row sm:items-end gap-3"
+              >
+                <label className="flex flex-col sm:flex-1">
+                  <span className="text-xs text-slate-500 mb-1 sm:hidden">Tên</span>
+                  <input
+                    className={`${inputClass} w-full`}
+                    value={emp.name}
+                    onChange={(e) => updateEmployee(emp.id, { name: e.target.value })}
+                  />
+                </label>
+                <label className="flex flex-col sm:w-40">
+                  <span className="text-xs text-slate-500 mb-1 sm:hidden">Hình thức</span>
+                  <select
+                    className={`${inputClass} w-full`}
+                    value={emp.employmentType}
+                    onChange={(e) =>
+                      updateEmployee(emp.id, {
+                        employmentType: e.target.value as EmploymentType,
+                      })
+                    }
+                  >
+                    <option value="VOLLZEIT">Toàn thời gian</option>
+                    <option value="TEILZEIT">Bán thời gian</option>
+                  </select>
+                </label>
+                <label className="flex flex-col sm:w-32">
+                  <span className="text-xs text-slate-500 mb-1 sm:hidden">Giờ định mức</span>
+                  <div className="flex items-center gap-1">
                     <input
                       type="number"
                       min={0}
                       step={1}
-                      className={`${inputClass} w-24`}
+                      className={`${inputClass} w-full`}
                       value={emp.targetMinutes / 60}
                       onChange={(e) =>
                         updateEmployee(emp.id, {
@@ -128,25 +122,25 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                         })
                       }
                     />
-                    <span className="ml-1 text-slate-400">h</span>
-                  </td>
-                  <td className={`py-2 pr-3 text-xs ${info.ok ? "text-slate-500" : "text-rose-600"}`}>
+                    <span className="text-slate-400">h</span>
+                  </div>
+                </label>
+                <div className="flex items-center justify-between sm:flex-col sm:items-end sm:justify-end gap-1 sm:w-24">
+                  <span className={`text-xs ${info.ok ? "text-slate-500" : "text-rose-600"}`}>
                     {info.text}
-                  </td>
-                  <td className="py-2 pr-3 text-right">
-                    <button
-                      onClick={() => removeEmployee(emp.id)}
-                      className="text-rose-600 hover:text-rose-800 text-sm"
-                    >
-                      Xoá
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                  </span>
+                  <button
+                    onClick={() => removeEmployee(emp.id)}
+                    className="text-rose-600 hover:text-rose-800 text-sm font-medium"
+                  >
+                    Xoá
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

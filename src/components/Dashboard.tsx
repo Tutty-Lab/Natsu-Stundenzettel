@@ -3,9 +3,11 @@ import { minutesToDecimalHours } from "../lib/time";
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="rounded-lg bg-white border border-slate-200 px-3 py-2 shadow-sm">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className={`text-lg font-semibold ${accent ?? "text-slate-900"}`}>{value}</div>
+    <div className="rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-2 shadow-sm">
+      <div className="text-[11px] sm:text-xs text-slate-500 leading-tight">{label}</div>
+      <div className={`text-base sm:text-lg font-semibold leading-tight ${accent ?? "text-slate-900"}`}>
+        {value}
+      </div>
     </div>
   );
 }

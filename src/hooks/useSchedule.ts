@@ -15,13 +15,13 @@ import {
   type DateOverride,
   type OverrideMap,
 } from "../lib/workHours";
+import { COMPANY_ADDRESS, COMPANY_NAME } from "../lib/company";
 
 function emptySchedule(): Schedule {
   const now = new Date();
   return {
-    companyName: "",
-    // Standard: der Shop in Gütersloh (NRW).
-    address: "Berliner Str. 61, 33330 Gütersloh",
+    companyName: COMPANY_NAME,
+    address: COMPANY_ADDRESS,
     year: now.getFullYear(),
     month: now.getMonth() + 1,
     workHours: structuredClone(DEFAULT_WORK_HOURS),
@@ -43,8 +43,9 @@ function normalizeSchedule(raw: Schedule | undefined): Schedule {
   const base = emptySchedule();
   if (!raw) return base;
   return {
-    companyName: raw.companyName ?? base.companyName,
-    address: raw.address ?? base.address,
+    // Firmenname & Adresse sind fest (không cho sửa) – immer erzwingen.
+    companyName: COMPANY_NAME,
+    address: COMPANY_ADDRESS,
     year: raw.year ?? base.year,
     month: raw.month ?? base.month,
     workHours: normalizeWorkHours(raw.workHours),

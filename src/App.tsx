@@ -56,15 +56,15 @@ export default function App() {
       </div>
 
       <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
-        <div className="flex gap-1 border-b border-slate-300 overflow-x-auto">
+        <div className="flex flex-wrap gap-2">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`whitespace-nowrap px-4 py-2 text-sm font-medium rounded-t ${
+              className={`px-3.5 py-2 text-sm font-medium rounded-full border ${
                 tab === t.id
-                  ? "bg-white text-slate-900 border border-b-white border-slate-300"
-                  : "text-slate-500 hover:text-slate-800"
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300"
               }`}
             >
               {t.label}

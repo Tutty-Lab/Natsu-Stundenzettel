@@ -53,13 +53,13 @@ function WindowRow({
 }) {
   return (
     <div className="flex items-center gap-2 py-1.5">
-      <div className="w-40 shrink-0">
-        <div className="text-sm text-slate-700">{label}</div>
+      <div className="w-24 sm:w-40 shrink-0">
+        <div className="text-sm text-slate-700 leading-tight">{label}</div>
         {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
       </div>
       <input
         type="time"
-        className={timeClass}
+        className={`${timeClass} min-w-0 flex-1 sm:flex-none`}
         value={minutesToTime(window.startMinutes)}
         onChange={(e) => {
           try {
@@ -72,7 +72,7 @@ function WindowRow({
       <span className="text-slate-400">–</span>
       <input
         type="time"
-        className={timeClass}
+        className={`${timeClass} min-w-0 flex-1 sm:flex-none`}
         value={minutesToTime(window.endMinutes)}
         onChange={(e) => {
           try {
@@ -155,23 +155,17 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
             <Field label="Tên công ty / cửa hàng">
-              <input
-                className={inputClass}
-                value={schedule.companyName}
-                onChange={(e) => updateMeta({ companyName: e.target.value })}
-                placeholder="VD: Muster Restaurant GmbH"
-              />
+              <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {schedule.companyName}
+              </div>
             </Field>
           </div>
 
           <div className="md:col-span-2">
             <Field label="Địa chỉ (in trên tờ chấm công)">
-              <input
-                className={inputClass}
-                value={schedule.address}
-                onChange={(e) => updateMeta({ address: e.target.value })}
-                placeholder="VD: Berliner Str. 61, 33330 Gütersloh"
-              />
+              <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {schedule.address}
+              </div>
             </Field>
           </div>
 
@@ -213,24 +207,22 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           khách.
         </p>
 
-        <div className="overflow-x-auto">
-          <div className="min-w-[320px]">
-            {WEEKDAY_ORDER.map((key) => (
-              <WindowRow
-                key={key}
-                label={WEEKDAY_LABELS_VI[key]}
-                window={schedule.workHours.perWeekday[key]}
-                onChange={(next) => setWeekdayWindow(key, next)}
-              />
-            ))}
-            <div className="my-2 border-t border-slate-200" />
+        <div>
+          {WEEKDAY_ORDER.map((key) => (
             <WindowRow
-              label="Ngày lễ"
-              hint="Tự áp dụng cho ngày lễ NRW"
-              window={schedule.workHours.holiday}
-              onChange={setHolidayWindow}
+              key={key}
+              label={WEEKDAY_LABELS_VI[key]}
+              window={schedule.workHours.perWeekday[key]}
+              onChange={(next) => setWeekdayWindow(key, next)}
             />
-          </div>
+          ))}
+          <div className="my-2 border-t border-slate-200" />
+          <WindowRow
+            label="Ngày lễ"
+            hint="Tự áp dụng cho ngày lễ NRW"
+            window={schedule.workHours.holiday}
+            onChange={setHolidayWindow}
+          />
         </div>
 
         {holidaysThisMonth.length > 0 && (
@@ -274,22 +266,22 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           và ngày lễ khi tạo lịch.
         </p>
 
-        <div className="flex flex-wrap items-end gap-3 rounded bg-slate-50 border border-slate-200 p-3">
-          <label className="flex flex-col">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3 rounded bg-slate-50 border border-slate-200 p-3">
+          <label className="flex flex-col sm:w-40">
             <span className="text-xs text-slate-600 mb-1">Ngày</span>
             <input
               type="date"
-              className={timeClass}
+              className={`${timeClass} w-full`}
               min={monthDates[0]}
               max={monthDates[monthDates.length - 1]}
               value={effectiveOvDate}
               onChange={(e) => setOvDate(e.target.value)}
             />
           </label>
-          <label className="flex flex-col">
+          <label className="flex flex-col sm:w-44">
             <span className="text-xs text-slate-600 mb-1">Kiểu</span>
             <select
-              className={timeClass}
+              className={`${timeClass} w-full`}
               value={ovMode}
               onChange={(e) => setOvMode(e.target.value as "closed" | "custom")}
             >
@@ -303,24 +295,24 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
               <div className="flex items-center gap-1">
                 <input
                   type="time"
-                  className={timeClass}
+                  className={`${timeClass} min-w-0 flex-1 sm:flex-none`}
                   value={ovStart}
                   onChange={(e) => setOvStart(e.target.value)}
                 />
                 <span className="text-slate-400">–</span>
                 <input
                   type="time"
-                  className={timeClass}
+                  className={`${timeClass} min-w-0 flex-1 sm:flex-none`}
                   value={ovEnd}
                   onChange={(e) => setOvEnd(e.target.value)}
                 />
               </div>
             </label>
           )}
-          <label className="flex flex-col grow min-w-[140px]">
+          <label className="flex flex-col sm:grow sm:min-w-[140px]">
             <span className="text-xs text-slate-600 mb-1">Ghi chú (tuỳ chọn)</span>
             <input
-              className={timeClass}
+              className={`${timeClass} w-full`}
               value={ovNote}
               onChange={(e) => setOvNote(e.target.value)}
               placeholder="VD: nghỉ nửa ngày"
@@ -328,7 +320,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           </label>
           <button
             onClick={addOverride}
-            className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800"
+            className="rounded bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800"
           >
             Lưu ngày này
           </button>
