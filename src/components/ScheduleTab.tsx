@@ -26,7 +26,7 @@ function cellClass(shift: Shift | undefined): string {
 }
 
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, validation, generate, resetToOriginal, hasOriginal, genError } = store;
+  const { schedule, validation, generate, genError } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
   const [view, setView] = useState<"grid" | "day">(() =>
@@ -82,13 +82,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
         >
           Tạo lịch làm việc
-        </button>
-        <button
-          onClick={resetToOriginal}
-          disabled={!hasOriginal}
-          className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
-        >
-          Khôi phục bản gốc
         </button>
         <button
           onClick={() =>

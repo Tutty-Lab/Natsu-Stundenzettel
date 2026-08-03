@@ -34,12 +34,6 @@ export default function App() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={store.saveNow}
-              className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
-            >
-              Lưu dữ liệu
-            </button>
-            <button
               onClick={() => {
                 if (confirm("Xoá toàn bộ dữ liệu?")) store.resetAll();
               }}
