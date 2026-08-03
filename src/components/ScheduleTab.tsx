@@ -84,12 +84,12 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
           Tạo lịch làm việc
         </button>
         <button
-          onClick={() =>
-            downloadCsv(
+          onClick={() => {
+            void downloadCsv(
               `Lich_lam_viec_${schedule.year}-${String(schedule.month).padStart(2, "0")}.csv`,
               scheduleToCsv(schedule),
-            )
-          }
+            );
+          }}
           disabled={schedule.shifts.length === 0}
           className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
         >

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
 import { StundenzettelPage } from "./StundenzettelPage";
@@ -12,16 +13,20 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const selected =
     schedule.employees.find((e) => e.id === selectedId) ?? schedule.employees[0] ?? null;
 
-  // Sau khi đặt danh sách in, mở hộp thoại in của trình duyệt.
+  // Vùng in phải được render TRƯỚC khi gọi print, và print phải nằm trong cùng
+  // thao tác chạm (mobile chặn print ngoài gesture). flushSync render đồng bộ.
+  function doPrint(list: Employee[]) {
+    if (list.length === 0) return;
+    flushSync(() => setPrintList(list));
+    window.print();
+  }
+
+  // Dọn vùng in ẩn sau khi in xong (nếu trình duyệt hỗ trợ).
   useEffect(() => {
-    if (printList) {
-      const t = setTimeout(() => {
-        window.print();
-        setPrintList(null);
-      }, 60);
-      return () => clearTimeout(t);
-    }
-  }, [printList]);
+    const clear = () => setPrintList(null);
+    window.addEventListener("afterprint", clear);
+    return () => window.removeEventListener("afterprint", clear);
+  }, []);
 
   if (schedule.employees.length === 0) {
     return (
@@ -49,24 +54,24 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             ))}
           </select>
           <button
-            onClick={() => selected && setPrintList([selected])}
+            onClick={() => selected && doPrint([selected])}
             className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800"
           >
             In bảng chấm công
           </button>
           <button
-            onClick={() => setPrintList(schedule.employees)}
+            onClick={() => doPrint(schedule.employees)}
             className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
           >
             In tất cả / lưu PDF
           </button>
           <button
-            onClick={() =>
-              downloadCsv(
+            onClick={() => {
+              void downloadCsv(
                 `Lich_lam_viec_${schedule.year}-${String(schedule.month).padStart(2, "0")}.csv`,
                 scheduleToCsv(schedule),
-              )
-            }
+              );
+            }}
             className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
           >
             Xuất lịch tháng (CSV)
@@ -74,7 +79,9 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
         </div>
         <p className="text-xs text-slate-500 mb-3">
           Tờ in <span className="font-medium">Stundenaufzeichnung</span> theo mẫu tiếng Đức (dùng nộp
-          tại Đức). Mẹo: trong hộp thoại in chọn „Lưu thành PDF", lề „Chuẩn", tỉ lệ 100 %.
+          tại Đức). Trên máy tính: hộp thoại in chọn „Lưu thành PDF", lề „Chuẩn", tỉ lệ 100 %.
+          Trên điện thoại: chọn <span className="font-medium">In</span> rồi „Lưu thành PDF", còn CSV sẽ
+          mở bảng <span className="font-medium">Chia sẻ</span> để lưu vào Tệp.
         </p>
 
         {/* Xem trước trên màn hình cho nhân viên đã chọn */}

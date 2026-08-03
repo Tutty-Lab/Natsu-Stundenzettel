@@ -71,16 +71,41 @@ export function scheduleToCsv(schedule: Schedule): string {
   return lines.join("\r\n");
 }
 
-/** Löst einen Datei-Download im Browser aus. */
-export function downloadCsv(filename: string, csv: string): void {
+/**
+ * Speichert/teilt die CSV. Auf Handys (v.a. iOS) ist der `download`-Trick
+ * unzuverlässig, daher zuerst der native Teilen-Dialog (Web Share mit Datei),
+ * sonst der klassische Download-Link.
+ */
+export async function downloadCsv(filename: string, csv: string): Promise<void> {
   // BOM für korrekte Umlaute in Excel.
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+
+  // 1) Web Share (mobil): speichern in „Dateien" / weiterleiten.
+  const nav = navigator as Navigator & {
+    canShare?: (data: ShareData) => boolean;
+  };
+  if (typeof File !== "undefined" && nav.canShare) {
+    const file = new File([blob], filename, { type: "text/csv" });
+    if (nav.canShare({ files: [file] })) {
+      try {
+        await nav.share({ files: [file], title: filename });
+        return;
+      } catch (err) {
+        // Abbruch durch den Nutzer -> nichts weiter tun.
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        // sonst: unten Fallback.
+      }
+    }
+  }
+
+  // 2) Fallback: klassischer Download-Link.
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
