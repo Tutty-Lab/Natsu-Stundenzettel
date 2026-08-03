@@ -6,6 +6,8 @@ import { ScheduleTab } from "./components/ScheduleTab";
 import { StundenzettelTab } from "./components/StundenzettelTab";
 import { DocsTab } from "./components/DocsTab";
 import { Dashboard } from "./components/Dashboard";
+import { LockScreen } from "./components/LockScreen";
+import { isAuthenticated, logout } from "./lib/auth";
 import { monthLabel } from "./lib/shiftOps";
 
 type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "stundenzettel" | "docs";
@@ -19,6 +21,13 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 export default function App() {
+  const [unlocked, setUnlocked] = useState(() => isAuthenticated());
+
+  if (!unlocked) return <LockScreen onUnlock={() => setUnlocked(true)} />;
+  return <MainApp onLogout={() => setUnlocked(false)} />;
+}
+
+function MainApp({ onLogout }: { onLogout: () => void }) {
   const store = useSchedule();
   const [tab, setTab] = useState<TabId>("einstellungen");
 
@@ -40,6 +49,15 @@ export default function App() {
               className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
             >
               Xoá dữ liệu
+            </button>
+            <button
+              onClick={() => {
+                logout();
+                onLogout();
+              }}
+              className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
+            >
+              Đăng xuất
             </button>
           </div>
         </div>
