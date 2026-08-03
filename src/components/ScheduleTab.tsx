@@ -12,6 +12,7 @@ import { signedHours } from "../lib/dateFormat";
 import { scheduleToCsv, downloadCsv } from "../lib/csv";
 import { monthLabel } from "../lib/shiftOps";
 import { ShiftCellEditor } from "./ShiftCellEditor";
+import { ScheduleDayView } from "./ScheduleDayView";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -27,6 +28,10 @@ function cellClass(shift: Shift | undefined): string {
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, validation, generate, resetToOriginal, hasOriginal, genError } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
+  // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
+  const [view, setView] = useState<"grid" | "day">(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches ? "day" : "grid",
+  );
 
   const dates = useMemo(
     () => datesOfMonth(schedule.year, schedule.month),
@@ -100,6 +105,28 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>
 
+      {/* Chuyển chế độ xem */}
+      {hasEmployees && (
+        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 mb-3">
+          <button
+            onClick={() => setView("day")}
+            className={`px-3 py-1.5 text-sm rounded-md ${
+              view === "day" ? "bg-slate-900 text-white" : "text-slate-600"
+            }`}
+          >
+            Theo ngày
+          </button>
+          <button
+            onClick={() => setView("grid")}
+            className={`px-3 py-1.5 text-sm rounded-md ${
+              view === "grid" ? "bg-slate-900 text-white" : "text-slate-600"
+            }`}
+          >
+            Bảng tháng
+          </button>
+        </div>
+      )}
+
       {genError && (
         <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
           {genError}
@@ -118,26 +145,30 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         </div>
       )}
 
-      {/* Chú thích */}
-      <div className="flex flex-wrap gap-3 mb-2 text-xs text-slate-600">
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded border shift-early" /> Ca sáng
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded border shift-late" /> Ca tối
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded border shift-free" /> Nghỉ
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded border shift-custom bg-white" /> Đã sửa tay
-        </span>
-      </div>
+      {/* Chú thích (chỉ ở bảng tháng) */}
+      {view === "grid" && (
+        <div className="flex flex-wrap gap-3 mb-2 text-xs text-slate-600">
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded border shift-early" /> Ca sáng
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded border shift-late" /> Ca tối
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded border shift-free" /> Nghỉ
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded border shift-custom bg-white" /> Đã sửa tay
+          </span>
+        </div>
+      )}
 
       {!hasEmployees ? (
         <div className="rounded bg-white border border-slate-200 p-6 text-center text-slate-400">
           Vui lòng thêm nhân viên trước.
         </div>
+      ) : view === "day" ? (
+        <ScheduleDayView store={store} onEdit={(employeeId, date) => setSelected({ employeeId, date })} />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white -mx-3 sm:mx-0">
           <table className="border-collapse text-xs">
