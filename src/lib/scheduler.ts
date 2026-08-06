@@ -16,7 +16,8 @@
 //  - Token-Dauer wird nie verändert  => monatliches Soll bleibt exakt
 // ============================================================================
 
-import type { Employee, Shift } from "../types";
+import { AZUBI_WORKDAYS_IN_TERM, type Employee, type Shift } from "../types";
+import { azubiConfigOf, azubiWeeklyHours } from "./azubi";
 import {
   DAY_WEIGHTS,
   LATE_SHIFT_RATIOS,
@@ -63,6 +64,7 @@ type SchedulerState = {
   dateState: Map<string, DateState>;
   worked: Map<string, Set<string>>; // employeeId -> Set<ISO>
   weekendCount: Map<string, number>; // employeeId -> Anzahl Fr/Sa-Schichten
+  weekMinutes: Map<string, Map<string, number>>;
   remaining: Map<string, number>; // employeeId -> noch zu verplanende Minuten
   shifts: Shift[];
   /** Für Nachfrage/Spätquote maßgeblicher Wochentag (Feiertag = Sonntag). */
@@ -86,6 +88,39 @@ function nextShiftId(): string {
 function isWeekend(isoDate: string): boolean {
   const key = weekdayKeyOf(parseIsoDate(isoDate));
   return key === "friday" || key === "saturday";
+}
+
+function weekKeyOf(isoDate: string): string {
+  const date = parseIsoDate(isoDate);
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+function weeklyCapMinutes(employee: Employee): number | null {
+  if (employee.employmentType !== "AZUBI") return null;
+  return Math.round(azubiWeeklyHours(employee.azubi) * 60);
+}
+
+function weeklyWorkdayCap(employee: Employee): number | null {
+  if (employee.employmentType !== "AZUBI") return null;
+  return azubiConfigOf(employee.azubi).inSchoolTerm ? AZUBI_WORKDAYS_IN_TERM : null;
+}
+
+function workedDaysInWeek(worked: Set<string>, weekKey: string): number {
+  let count = 0;
+  for (const date of worked) {
+    if (weekKeyOf(date) === weekKey) count += 1;
+  }
+  return count;
+}
+
+function isSchoolDay(employee: Employee, isoDate: string): boolean {
+  if (employee.employmentType !== "AZUBI") return false;
+  const config = azubiConfigOf(employee.azubi);
+  return (
+    config.inSchoolTerm &&
+    config.schoolDays.includes(weekdayKeyOf(parseIsoDate(isoDate)))
+  );
 }
 
 const SHIFT_HOURS_DESC = [8, 7, 6, 5, 4] as const;
@@ -119,22 +154,31 @@ export function chooseShiftHours(
 
   // Präferenz-Reihenfolge: Vollzeit lange Schichten, Teilzeit mittlere/kurze.
   const preference =
-    employmentType === "VOLLZEIT" ? [8, 7, 6, 5, 4] : [5, 6, 4, 7, 8];
+    employmentType === "VOLLZEIT"
+      ? [8, 7, 6, 5, 4]
+      : employmentType === "AZUBI"
+        ? [8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4]
+        : [5, 6, 4, 7, 8];
 
   for (const hours of preference) {
     if (hours > cap) continue;
     const rest = remainingHours - hours;
     // Rest muss exakt in 4..8-h-Schichten aufteilbar bleiben (0 oder >= 4).
-    if (rest === 0 || rest >= 4) return hours;
+    if (Math.abs(rest) < 1e-9 || rest >= 4) return hours;
   }
   return 0;
 }
 
 /** Stabile Basisordnung: Vollzeit zuerst, dann nach Id. */
 function orderedEmployees(employees: Employee[]): Employee[] {
+  const rank: Record<Employee["employmentType"], number> = {
+    VOLLZEIT: 0,
+    AZUBI: 1,
+    TEILZEIT: 2,
+  };
   return [...employees].sort((a, b) => {
     if (a.employmentType !== b.employmentType) {
-      return a.employmentType === "VOLLZEIT" ? -1 : 1;
+      return rank[a.employmentType] - rank[b.employmentType];
     }
     return a.id.localeCompare(b.id);
   });
@@ -186,6 +230,9 @@ function applyShift(state: SchedulerState, shift: Shift): void {
   if (shift.shiftType === "LATE") ds.latePaid += shift.paidMinutes;
   ds.count += 1;
   state.worked.get(shift.employeeId)!.add(shift.date);
+  const weekMinutes = state.weekMinutes.get(shift.employeeId)!;
+  const weekKey = weekKeyOf(shift.date);
+  weekMinutes.set(weekKey, (weekMinutes.get(weekKey) ?? 0) + shift.paidMinutes);
   if (isWeekend(shift.date)) {
     state.weekendCount.set(
       shift.employeeId,
@@ -214,11 +261,27 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
 
   for (const isoDate of state.dates) {
     if (worked.has(isoDate)) continue; // max. ein Dienst pro Tag
+    if (isSchoolDay(employee, isoDate)) continue;
     const day = state.dayOf(isoDate);
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
 
+    const weekKey = weekKeyOf(isoDate);
+    const workdayCap = weeklyWorkdayCap(employee);
+    if (workdayCap !== null && workedDaysInWeek(worked, weekKey) >= workdayCap) {
+      continue;
+    }
+
+    const weekCap = weeklyCapMinutes(employee);
+    const usedThisWeek = state.weekMinutes.get(employee.id)!.get(weekKey) ?? 0;
+    const availableMinutes =
+      weekCap === null ? remaining : Math.min(remaining, weekCap - usedThisWeek);
+    if (availableMinutes <= 0) continue;
+
     // Längste Schicht, die ins Fenster passt UND den Rest exakt aufteilbar lässt.
-    const maxHours = maxShiftHoursForWindow(windowLength(day));
+    const maxHours = Math.min(
+      maxShiftHoursForWindow(windowLength(day)),
+      availableMinutes / 60,
+    );
     const hours = chooseShiftHours(remaining, maxHours, employee.employmentType);
     if (hours === 0) continue; // hier passt keine gültige Schicht
 
@@ -276,6 +339,9 @@ function removeShift(state: SchedulerState, shift: Shift): void {
   if (shift.shiftType === "LATE") ds.latePaid -= shift.paidMinutes;
   ds.count -= 1;
   state.worked.get(shift.employeeId)!.delete(shift.date);
+  const weekMinutes = state.weekMinutes.get(shift.employeeId)!;
+  const weekKey = weekKeyOf(shift.date);
+  weekMinutes.set(weekKey, (weekMinutes.get(weekKey) ?? 0) - shift.paidMinutes);
   if (isWeekend(shift.date)) {
     state.weekendCount.set(
       shift.employeeId,
@@ -311,9 +377,28 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         if (to === from || worked.has(to)) continue;
         const day = state.dayOf(to);
         if (day.closed || windowLength(day) < presence) continue; // geschlossen / passt nicht
+        if (isSchoolDay(employee, to)) continue;
         // 6-Tage-Regel prüfen, als ob "from" bereits entfernt wäre.
         const trial = new Set(worked);
         trial.delete(from);
+        const workdayCap = weeklyWorkdayCap(employee);
+        if (
+          workdayCap !== null &&
+          workedDaysInWeek(trial, weekKeyOf(to)) >= workdayCap
+        ) {
+          continue;
+        }
+        const weekCap = weeklyCapMinutes(employee);
+        if (weekCap !== null) {
+          const weekMinutes = state.weekMinutes.get(employee.id)!;
+          const fromWeek = weekKeyOf(from);
+          const toWeek = weekKeyOf(to);
+          const usedAfterMove =
+            (weekMinutes.get(toWeek) ?? 0) +
+            shift.paidMinutes -
+            (fromWeek === toWeek ? shift.paidMinutes : 0);
+          if (usedAfterMove > weekCap) continue;
+        }
         if (consecutiveRunLengthWith(trial, to) > 6) continue;
 
         const oldCostTo = dateCost(state, to);
@@ -350,6 +435,19 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const holidays = input.holidays ?? nrwHolidays(year);
   const overrides = input.overrides ?? {};
 
+  const invalidSchoolDays = employees.filter((employee) => {
+    if (employee.employmentType !== "AZUBI") return false;
+    const config = azubiConfigOf(employee.azubi);
+    return config.inSchoolTerm && config.schoolDays.length !== 2;
+  });
+  if (invalidSchoolDays.length > 0) {
+    throw new Error(
+      `Azubi trong kỳ học phải chọn đúng 2 ngày đi học: ${invalidSchoolDays
+        .map((employee) => employee.name)
+        .join(", ")}.`,
+    );
+  }
+
   const effKeyOf = (isoDate: string): WeekdayKey => effectiveWeekdayKey(isoDate, holidays);
   const dayOf = (isoDate: string): ResolvedDay => resolveDay(workHours, isoDate, holidays, overrides);
   // Nachfrage-Gewicht: geschlossene Tage tragen 0 (bekommen keine Stunden).
@@ -368,11 +466,13 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const dateState = new Map<string, DateState>();
   const worked = new Map<string, Set<string>>();
   const weekendCount = new Map<string, number>();
+  const weekMinutes = new Map<string, Map<string, number>>();
   const remaining = new Map<string, number>();
   for (const d of dates) dateState.set(d, { totalPaid: 0, latePaid: 0, count: 0 });
   for (const e of employees) {
     worked.set(e.id, new Set());
     weekendCount.set(e.id, 0);
+    weekMinutes.set(e.id, new Map());
     remaining.set(e.id, e.targetMinutes);
   }
 
@@ -386,6 +486,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     dateState,
     worked,
     weekendCount,
+    weekMinutes,
     remaining,
     shifts: [],
     effKeyOf,

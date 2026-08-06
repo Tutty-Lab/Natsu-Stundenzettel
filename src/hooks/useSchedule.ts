@@ -16,6 +16,7 @@ import {
   type OverrideMap,
 } from "../lib/workHours";
 import { COMPANY_ADDRESS, COMPANY_NAME } from "../lib/company";
+import { defaultAzubiConfig, withAutomaticAzubiTarget } from "../lib/azubi";
 
 function emptySchedule(): Schedule {
   const now = new Date();
@@ -42,6 +43,7 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
 function normalizeSchedule(raw: Schedule | undefined): Schedule {
   const base = emptySchedule();
   if (!raw) return base;
+  const employees = (raw.employees ?? []).map(withAutomaticAzubiTarget);
   return {
     // Firmenname & Adresse sind fest (không cho sửa) – immer erzwingen.
     companyName: COMPANY_NAME,
@@ -50,7 +52,7 @@ function normalizeSchedule(raw: Schedule | undefined): Schedule {
     month: raw.month ?? base.month,
     workHours: normalizeWorkHours(raw.workHours),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
-    employees: raw.employees ?? [],
+    employees,
     shifts: raw.shifts ?? [],
   };
 }
@@ -93,8 +95,12 @@ export function useSchedule() {
         name: name.trim() || "Neuer Mitarbeiter",
         employmentType,
         targetMinutes: Math.round(targetHours) * 60,
+        azubi: employmentType === "AZUBI" ? defaultAzubiConfig() : undefined,
       };
-      setSchedule((s) => ({ ...s, employees: [...s.employees, emp] }));
+      setSchedule((s) => ({
+        ...s,
+        employees: [...s.employees, withAutomaticAzubiTarget(emp)],
+      }));
     },
     [],
   );
@@ -102,7 +108,9 @@ export function useSchedule() {
   const updateEmployee = useCallback((id: string, patch: Partial<Employee>) => {
     setSchedule((s) => ({
       ...s,
-      employees: s.employees.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      employees: s.employees.map((e) =>
+        e.id === id ? withAutomaticAzubiTarget({ ...e, ...patch }) : e,
+      ),
     }));
   }, []);
 

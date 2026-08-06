@@ -45,7 +45,12 @@ export function scheduleToCsv(schedule: Schedule): string {
       const s = byDate.get(date);
       const weekday = WEEKDAY_SHORT_VI[weekdayKeyOf(parseIsoDate(date))];
       const datum = format(parseIsoDate(date), "dd.MM.yyyy");
-      const artLabel = emp.employmentType === "VOLLZEIT" ? "Toàn thời gian" : "Bán thời gian";
+      const artLabel =
+        emp.employmentType === "VOLLZEIT"
+          ? "Toàn thời gian"
+          : emp.employmentType === "AZUBI"
+            ? "Azubi (học nghề)"
+            : "Bán thời gian";
       if (s) {
         rows.push([
           emp.name,

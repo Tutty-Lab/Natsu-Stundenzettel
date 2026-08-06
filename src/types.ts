@@ -5,7 +5,27 @@
 
 import type { DateOverride, WorkHoursConfig } from "./lib/workHours";
 
-export type EmploymentType = "VOLLZEIT" | "TEILZEIT";
+export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "AZUBI";
+
+export type WeekdayName =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
+
+export type AzubiConfig = {
+  /** true while vocational school is in session. */
+  inSchoolTerm: boolean;
+  /** Exactly two weekdays without a generated work shift during school term. */
+  schoolDays: WeekdayName[];
+};
+
+export const AZUBI_HOURS_IN_TERM = 24;
+export const AZUBI_HOURS_OUT_OF_TERM = 38.5;
+export const AZUBI_WORKDAYS_IN_TERM = 3;
 
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
 
@@ -15,6 +35,8 @@ export type Employee = {
   employmentType: EmploymentType;
   /** Monatliches Soll in Minuten (Integer). 176 h => 10560. */
   targetMinutes: number;
+  /** Only used when employmentType is AZUBI. */
+  azubi?: AzubiConfig;
 };
 
 export type Shift = {

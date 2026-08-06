@@ -2,9 +2,11 @@
 // Validierung des Dienstplans gegen alle geforderten Regeln.
 // ============================================================================
 
-import type { Employee, Shift } from "../types";
+import { AZUBI_WORKDAYS_IN_TERM, type Employee, type Shift } from "../types";
 import { calculatePause } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
+import { azubiConfigOf, azubiWeeklyHours } from "./azubi";
+import { parseIsoDate, weekdayKeyOf } from "./demand";
 
 export type ValidationError = {
   employeeId?: string;
@@ -29,6 +31,12 @@ export type ValidationResult = {
 
 const MAX_PAID_MINUTES = 8 * 60;
 const MAX_CONSECUTIVE_DAYS = 6;
+
+function weekKeyOf(isoDate: string): string {
+  const date = parseIsoDate(isoDate);
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
 
 export function validateSchedule(
   employees: Employee[],
@@ -112,6 +120,52 @@ export function validateSchedule(
         employeeId: emp.id,
         message: `${emp.name}: làm quá 6 ngày liên tiếp (${maxRun}).`,
       });
+    }
+
+    if (emp.employmentType === "AZUBI") {
+      const config = azubiConfigOf(emp.azubi);
+      if (config.inSchoolTerm && config.schoolDays.length !== 2) {
+        errors.push({
+          employeeId: emp.id,
+          message: `${emp.name}: trong kỳ học phải chọn đúng 2 ngày đi học.`,
+        });
+      }
+
+      const byWeek = new Map<string, { minutes: number; dates: Set<string> }>();
+      for (const shift of empShifts) {
+        if (
+          config.inSchoolTerm &&
+          config.schoolDays.includes(weekdayKeyOf(parseIsoDate(shift.date)))
+        ) {
+          errors.push({
+            employeeId: emp.id,
+            date: shift.date,
+            message: `${emp.name}: có ca vào ngày đi học ${shift.date}.`,
+          });
+        }
+
+        const key = weekKeyOf(shift.date);
+        const week = byWeek.get(key) ?? { minutes: 0, dates: new Set<string>() };
+        week.minutes += shift.paidMinutes;
+        week.dates.add(shift.date);
+        byWeek.set(key, week);
+      }
+
+      const weeklyCap = Math.round(azubiWeeklyHours(config) * 60);
+      for (const [week, values] of byWeek) {
+        if (values.minutes > weeklyCap) {
+          errors.push({
+            employeeId: emp.id,
+            message: `${emp.name}: tuần ${week} vượt mức ${weeklyCap / 60}h.`,
+          });
+        }
+        if (config.inSchoolTerm && values.dates.size > AZUBI_WORKDAYS_IN_TERM) {
+          errors.push({
+            employeeId: emp.id,
+            message: `${emp.name}: tuần ${week} vượt tối đa ${AZUBI_WORKDAYS_IN_TERM} ngày làm.`,
+          });
+        }
+      }
     }
 
     summaries.push({
