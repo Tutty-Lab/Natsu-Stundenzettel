@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  // Supabase's Vercel integration uses NEXT_PUBLIC_* while local Vite setups
+  // commonly use VITE_*. Only public browser credentials may use these names.
+  envPrefix: ["VITE_", "NEXT_PUBLIC_"],
   plugins: [
     react(),
     VitePWA({

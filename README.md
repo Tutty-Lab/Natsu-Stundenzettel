@@ -3,16 +3,16 @@
 Web-App zur **automatischen Erstellung monatlicher Dienstpläne** und **druckbarer
 deutscher Stundenzettel** für ein Restaurant / Geschäft in Deutschland.
 
-- Kein Backend, keine Datenbank, keine Anmeldung, kein Solver, kein KI-Modell.
+- Supabase synchronisiert den kompletten App-Zustand zwischen Geräten.
 - Deterministischer, heuristischer Greedy-Algorithmus.
 - Der Plan trifft **jedes monatliche Soll exakt** und lässt sich anschließend
   manuell bearbeiten.
-- Persistenz über **LocalStorage**.
+- **LocalStorage** bleibt als Offline-Puffer erhalten.
 
 ## Tech-Stack
 
 React · TypeScript · Vite · Tailwind CSS · date-fns · Browser-Druck (PDF) ·
-LocalStorage · Vitest.
+Supabase · LocalStorage · Vitest.
 
 ## Installation & Start
 
@@ -23,6 +23,10 @@ npm run dev
 
 Die App läuft danach unter der von Vite angezeigten URL (Standard
 `http://localhost:5173`).
+
+Für die Synchronisierung die öffentlichen Supabase-Werte aus `.env.example`
+in `.env.local` eintragen. Das benötigte Tabellenschema liegt unter
+`supabase/schema.sql`. Ohne diese Werte läuft die App weiterhin nur lokal.
 
 ## Weitere Befehle
 

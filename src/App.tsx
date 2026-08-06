@@ -47,6 +47,22 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             <h1 className="text-base sm:text-lg font-semibold">Lịch làm việc &amp; Bảng chấm công</h1>
             <p className="text-xs text-slate-300">
               {store.schedule.companyName || "Chưa có tên cửa hàng"} · {monthLabel(store.schedule.year, store.schedule.month)}
+              {store.remoteStatus !== "off" && (
+                <span
+                  className={
+                    store.remoteStatus === "error"
+                      ? "ml-2 text-rose-300"
+                      : "ml-2 text-slate-400"
+                  }
+                >
+                  ·{" "}
+                  {store.remoteStatus === "saving"
+                    ? "đang đồng bộ…"
+                    : store.remoteStatus === "error"
+                      ? "lỗi đồng bộ — dữ liệu chỉ lưu trên máy này"
+                      : "đã đồng bộ"}
+                </span>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

@@ -3,6 +3,12 @@ dist
 dist-ssr
 *.local
 .DS_Store
+
+# Supabase/Postgres credentials must never be committed.
+.env
+.env.*
+!.env.example
+.vercel
 .vscode/*
 !.vscode/extensions.json
 .claude/

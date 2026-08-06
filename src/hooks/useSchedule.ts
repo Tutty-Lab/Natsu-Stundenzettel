@@ -3,11 +3,12 @@
 // LocalStorage-Persistenz und alle Aktionen (Generieren, Bearbeiten, Reset).
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Employee, EmploymentType, Schedule, Shift } from "../types";
 import { generateSchedule } from "../lib/scheduler";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
-import { clearState, loadState, saveState } from "../lib/storage";
+import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
+import { isRemoteConfigured, loadRemote, saveRemote, type RemoteStatus } from "../lib/remote";
 import { createManualShift, updateShiftTimes } from "../lib/shiftOps";
 import {
   DEFAULT_WORK_HOURS,
@@ -15,7 +16,7 @@ import {
   type DateOverride,
   type OverrideMap,
 } from "../lib/workHours";
-import { COMPANY_ADDRESS, COMPANY_NAME } from "../lib/company";
+import { COMPANY_ADDRESS, COMPANY_ID, COMPANY_NAME } from "../lib/company";
 import { defaultAzubiConfig, withAutomaticAzubiTarget } from "../lib/azubi";
 
 function emptySchedule(): Schedule {
@@ -71,10 +72,66 @@ export function useSchedule() {
     return persisted?.originalShifts ?? [];
   });
   const [genError, setGenError] = useState<string | null>(null);
+  const [remoteStatus, setRemoteStatus] = useState<RemoteStatus>(
+    isRemoteConfigured ? "idle" : "off",
+  );
 
-  // Automatisch speichern.
+  // Save immediately to localStorage so the app remains usable offline.
   useEffect(() => {
     saveState({ schedule, originalShifts });
+  }, [schedule, originalShifts]);
+
+  const latest = useRef<PersistedState>({ schedule, originalShifts });
+  useEffect(() => {
+    latest.current = { schedule, originalShifts };
+  }, [schedule, originalShifts]);
+
+  // Hydrate from Supabase before remote writes are allowed. If no cloud row
+  // exists yet, upload the current local state as the initial Natsu dataset.
+  const hydrated = useRef(!isRemoteConfigured);
+  useEffect(() => {
+    if (!isRemoteConfigured) return;
+
+    hydrated.current = false;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const remote = await loadRemote(COMPANY_ID);
+        if (cancelled) return;
+
+        if (remote?.schedule) {
+          setSchedule(normalizeSchedule(remote.schedule));
+          setOriginalShifts(remote.originalShifts ?? []);
+        } else {
+          await saveRemote(COMPANY_ID, latest.current);
+        }
+
+        if (!cancelled) setRemoteStatus("idle");
+      } catch {
+        if (!cancelled) setRemoteStatus("error");
+      } finally {
+        if (!cancelled) hydrated.current = true;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Debounce cloud writes so editing an input does not send one request per keypress.
+  useEffect(() => {
+    if (!isRemoteConfigured || !hydrated.current) return;
+
+    const timer = window.setTimeout(() => {
+      setRemoteStatus("saving");
+      saveRemote(COMPANY_ID, { schedule, originalShifts })
+        .then(() => setRemoteStatus("idle"))
+        .catch(() => setRemoteStatus("error"));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
   }, [schedule, originalShifts]);
 
   const validation: ValidationResult = useMemo(
@@ -251,6 +308,8 @@ export function useSchedule() {
     generate,
     resetToOriginal,
     resetAll,
+    remoteStatus,
+    isRemoteConfigured,
     saveNow,
     upsertOverride,
     removeOverride,
