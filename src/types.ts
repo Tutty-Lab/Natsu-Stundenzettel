@@ -21,6 +21,10 @@ export type AzubiConfig = {
   inSchoolTerm: boolean;
   /** Exactly two weekdays without a generated work shift during school term. */
   schoolDays: WeekdayName[];
+  /** Owner-configured weekly hours while vocational school is in session. */
+  weeklyHoursInTerm?: number;
+  /** Owner-configured weekly hours outside the vocational school term. */
+  weeklyHoursOutOfTerm?: number;
 };
 
 export const AZUBI_HOURS_IN_TERM = 24;

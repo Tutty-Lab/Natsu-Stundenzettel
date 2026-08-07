@@ -17,7 +17,12 @@
 // ============================================================================
 
 import { AZUBI_WORKDAYS_IN_TERM, type Employee, type Shift } from "../types";
-import { azubiConfigOf, azubiWeeklyHours } from "./azubi";
+import {
+  azubiConfigOf,
+  azubiWeeklyCap,
+  azubiWeeklyHours,
+  azubiWeeklyLimit,
+} from "./azubi";
 import {
   DAY_WEIGHTS,
   LATE_SHIFT_RATIOS,
@@ -98,7 +103,7 @@ function weekKeyOf(isoDate: string): string {
 
 function weeklyCapMinutes(employee: Employee): number | null {
   if (employee.employmentType !== "AZUBI") return null;
-  return Math.round(azubiWeeklyHours(employee.azubi) * 60);
+  return Math.round(azubiWeeklyCap(employee.azubi) * 60);
 }
 
 function weeklyWorkdayCap(employee: Employee): number | null {
@@ -444,6 +449,22 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     throw new Error(
       `Azubi trong kỳ học phải chọn đúng 2 ngày đi học: ${invalidSchoolDays
         .map((employee) => employee.name)
+        .join(", ")}.`,
+    );
+  }
+
+  const invalidWeeklyHours = employees.filter(
+    (employee) =>
+      employee.employmentType === "AZUBI" &&
+      azubiWeeklyHours(employee.azubi) > azubiWeeklyLimit(employee.azubi),
+  );
+  if (invalidWeeklyHours.length > 0) {
+    throw new Error(
+      `Giờ Azubi vượt giới hạn: ${invalidWeeklyHours
+        .map(
+          (employee) =>
+            `${employee.name} (${azubiWeeklyHours(employee.azubi)}h, tối đa ${azubiWeeklyLimit(employee.azubi)}h/tuần)`,
+        )
         .join(", ")}.`,
     );
   }

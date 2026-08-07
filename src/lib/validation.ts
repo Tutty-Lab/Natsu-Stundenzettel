@@ -5,7 +5,7 @@
 import { AZUBI_WORKDAYS_IN_TERM, type Employee, type Shift } from "../types";
 import { calculatePause } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
-import { azubiConfigOf, azubiWeeklyHours } from "./azubi";
+import { azubiConfigOf, azubiWeeklyCap } from "./azubi";
 import { parseIsoDate, weekdayKeyOf } from "./demand";
 
 export type ValidationError = {
@@ -151,7 +151,7 @@ export function validateSchedule(
         byWeek.set(key, week);
       }
 
-      const weeklyCap = Math.round(azubiWeeklyHours(config) * 60);
+      const weeklyCap = Math.round(azubiWeeklyCap(config) * 60);
       for (const [week, values] of byWeek) {
         if (values.minutes > weeklyCap) {
           errors.push({

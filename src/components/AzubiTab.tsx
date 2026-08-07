@@ -7,7 +7,12 @@ import {
   type WeekdayName,
 } from "../types";
 import { WEEKDAY_LABELS_VI } from "../lib/demand";
-import { AZUBI_MONTHLY_WEEKS, azubiConfigOf, azubiWeeklyHours } from "../lib/azubi";
+import {
+  AZUBI_MONTHLY_WEEKS,
+  azubiConfigOf,
+  azubiWeeklyHours,
+  azubiWeeklyLimit,
+} from "../lib/azubi";
 
 const WEEKDAYS: WeekdayName[] = [
   "monday",
@@ -41,18 +46,29 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
       <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">Quy tắc Azubi</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Trong kỳ học: <b>{AZUBI_HOURS_IN_TERM}h/tuần</b>, chọn đúng 2 ngày học,
-          hệ thống xếp tối đa <b>{AZUBI_WORKDAYS_IN_TERM} ngày làm</b> và để 2 ngày nghỉ.
-          Ngoài kỳ học: <b>{AZUBI_HOURS_OUT_OF_TERM}h/tuần</b>. Định mức tháng luôn
-          tính cố định {AZUBI_MONTHLY_WEEKS} tuần, tương ứng <b>96h</b> hoặc <b>154h</b>.
+          Chủ tự nhập giờ làm mỗi tuần. Trong kỳ học tối đa <b>{AZUBI_HOURS_IN_TERM}h</b>,
+          ngoài kỳ học tối đa <b>{AZUBI_HOURS_OUT_OF_TERM}h</b>. Định mức tháng được tính
+          theo giờ tuần × {AZUBI_MONTHLY_WEEKS}.
         </p>
       </section>
 
       {azubis.map((employee) => {
         const config = azubiConfigOf(employee.azubi);
         const validSchoolDays = config.schoolDays.length === SCHOOL_DAYS_REQUIRED;
+        const weeklyHours = azubiWeeklyHours(config);
+        const weeklyLimit = azubiWeeklyLimit(config);
+        const isOverLimit = weeklyHours > weeklyLimit;
         const setConfig = (patch: Partial<AzubiConfig>) =>
           updateEmployee(employee.id, { azubi: { ...config, ...patch } });
+
+        const setWeeklyHours = (value: number) => {
+          const normalized = Math.max(0, Math.round(value * 2) / 2);
+          setConfig(
+            config.inSchoolTerm
+              ? { weeklyHoursInTerm: normalized }
+              : { weeklyHoursOutOfTerm: normalized },
+          );
+        };
 
         const toggleSchoolDay = (weekday: WeekdayName) => {
           const selected = config.schoolDays.includes(weekday);
@@ -73,7 +89,7 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
               <h3 className="font-semibold text-slate-900">{employee.name}</h3>
               <span className="text-sm text-slate-500">
                 <b className="text-slate-900">{employee.targetMinutes / 60}h/tháng</b>
-                {" · "}{azubiWeeklyHours(config)}h/tuần
+                {" · "}{weeklyHours}h/tuần
               </span>
             </div>
 
@@ -89,6 +105,35 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                 <span className="text-slate-400"> — bỏ tích khi nghỉ hè / ngoài kỳ học</span>
               </span>
             </label>
+
+            <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <label className="flex flex-col">
+                  <span className="mb-1 text-xs font-medium text-slate-700">
+                    Giờ làm mỗi tuần
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={weeklyHours}
+                      onChange={(event) => setWeeklyHours(Number(event.target.value))}
+                      className="w-28 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                    />
+                    <span className="text-sm text-slate-500">h/tuần</span>
+                  </div>
+                </label>
+                <span className="text-xs text-slate-500">
+                  Tối đa {weeklyLimit}h/tuần · {weeklyHours * AZUBI_MONTHLY_WEEKS}h/tháng
+                </span>
+              </div>
+              {isOverLimit && (
+                <p className="mt-2 text-xs font-medium text-amber-700" role="alert">
+                  Đang vượt mức tối đa {weeklyLimit}h/tuần. Hãy giảm giờ trước khi tạo lịch.
+                </p>
+              )}
+            </div>
 
             {config.inSchoolTerm ? (
               <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3">
@@ -124,7 +169,7 @@ export function AzubiTab({ store }: { store: UseScheduleReturn }) {
                   </p>
                 )}
                 <p className="mt-2 text-xs text-slate-500">
-                  5 ngày còn lại gồm 3 ngày làm và 2 ngày nghỉ; tổng không vượt 24h/tuần.
+                  5 ngày còn lại gồm tối đa {AZUBI_WORKDAYS_IN_TERM} ngày làm và 2 ngày nghỉ.
                 </p>
               </div>
             ) : (

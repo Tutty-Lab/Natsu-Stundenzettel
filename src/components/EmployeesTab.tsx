@@ -53,7 +53,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
           <div className="flex flex-col sm:w-36">
             <span className="text-xs text-slate-600 mb-1">Giờ định mức</span>
             <div className="rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700">
-              <b>{newAzubiHours}h</b> · tự động
+              <b>{newAzubiHours}h</b> · mặc định
             </div>
           </div>
         ) : (
@@ -89,7 +89,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
           {schedule.employees.map((employee) => {
             const isAzubi = employee.employmentType === "AZUBI";
             const info = isAzubi
-              ? { ok: true, text: `${azubiWeeklyHours(employee.azubi)}h/tuần · tự động` }
+              ? { ok: true, text: `${azubiWeeklyHours(employee.azubi)}h/tuần · tab Azubi` }
               : splitInfo(employee.targetMinutes / 60, employee.employmentType);
 
             return (
@@ -127,7 +127,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                   <span className="text-xs text-slate-500 mb-1 sm:hidden">Giờ định mức</span>
                   {isAzubi ? (
                     <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-700">
-                      <b>{employee.targetMinutes / 60}h</b> · tự động
+                      <b>{employee.targetMinutes / 60}h</b> · theo tuần
                     </div>
                   ) : (
                     <div className="flex items-center gap-1">

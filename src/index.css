@@ -41,6 +41,16 @@ body {
   display: none;
 }
 
+/* PDF pages must remain rendered for html2canvas, so stage them off-screen. */
+.pdf-stage {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  width: 210mm;
+  background: #fff;
+  pointer-events: none;
+}
+
 /* ===================== Druck: Stundenzettel ===================== */
 @media print {
   body {

@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  AZUBI_HOURS_IN_TERM,
-  AZUBI_HOURS_OUT_OF_TERM,
-  AZUBI_WORKDAYS_IN_TERM,
-  type Employee,
-  type Shift,
-} from "../../types";
+import { AZUBI_WORKDAYS_IN_TERM, type Employee, type Shift } from "../../types";
 import {
   azubiMonthlyMinutes,
   defaultAzubiConfig,
@@ -40,17 +34,21 @@ function manualShift(id: string, date: string, paidHours: number): Shift {
 }
 
 describe("Azubi monthly target", () => {
-  it("uses a fixed four-week target in and outside the school term", () => {
-    const inTerm = defaultAzubiConfig();
+  it("uses the weekly hours configured by the owner", () => {
+    const inTerm = {
+      ...defaultAzubiConfig(),
+      weeklyHoursInTerm: 20,
+      weeklyHoursOutOfTerm: 35,
+    };
     const outsideTerm = { ...inTerm, inSchoolTerm: false };
 
-    expect(azubiMonthlyMinutes(inTerm)).toBe(AZUBI_HOURS_IN_TERM * 4 * 60);
-    expect(azubiMonthlyMinutes(outsideTerm)).toBe(AZUBI_HOURS_OUT_OF_TERM * 4 * 60);
+    expect(azubiMonthlyMinutes(inTerm)).toBe(20 * 4 * 60);
+    expect(azubiMonthlyMinutes(outsideTerm)).toBe(35 * 4 * 60);
   });
 });
 
 describe("Azubi schedule during school term", () => {
-  it("keeps two school days free and uses at most three workdays and 24h per week", () => {
+  it("keeps two school days free and follows the configured 20h per week", () => {
     const employee: Employee = withAutomaticAzubiTarget({
       id: "AZ-TERM",
       name: "Azubi term",
@@ -59,6 +57,8 @@ describe("Azubi schedule during school term", () => {
       azubi: {
         inSchoolTerm: true,
         schoolDays: ["monday", "tuesday"],
+        weeklyHoursInTerm: 20,
+        weeklyHoursOutOfTerm: 35,
       },
     });
 
@@ -70,7 +70,7 @@ describe("Azubi schedule during school term", () => {
       seed: "azubi-term",
     });
 
-    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(96 * 60);
+    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(80 * 60);
 
     const minutesByWeek = new Map<string, number>();
     const daysByWeek = new Map<string, Set<string>>();
@@ -86,20 +86,20 @@ describe("Azubi schedule during school term", () => {
     }
 
     for (const minutes of minutesByWeek.values()) {
-      expect(minutes).toBeLessThanOrEqual(AZUBI_HOURS_IN_TERM * 60);
+      expect(minutes).toBeLessThanOrEqual(20 * 60);
     }
     for (const days of daysByWeek.values()) {
       expect(days.size).toBeLessThanOrEqual(AZUBI_WORKDAYS_IN_TERM);
     }
     for (const fullWeek of ["2026-9-7", "2026-9-14", "2026-9-21"]) {
       expect(daysByWeek.get(fullWeek)?.size).toBe(AZUBI_WORKDAYS_IN_TERM);
-      expect(minutesByWeek.get(fullWeek)).toBe(AZUBI_HOURS_IN_TERM * 60);
+      expect(minutesByWeek.get(fullWeek)).toBe(20 * 60);
     }
   });
 });
 
 describe("Azubi schedule outside school term", () => {
-  it("assigns exactly 154h without exceeding 38.5h in a calendar week", () => {
+  it("assigns exactly 140h without exceeding the configured 35h per week", () => {
     const employee: Employee = withAutomaticAzubiTarget({
       id: "AZ-OUTSIDE",
       name: "Azubi outside term",
@@ -108,6 +108,8 @@ describe("Azubi schedule outside school term", () => {
       azubi: {
         inSchoolTerm: false,
         schoolDays: ["monday", "tuesday"],
+        weeklyHoursInTerm: 20,
+        weeklyHoursOutOfTerm: 35,
       },
     });
 
@@ -119,19 +121,43 @@ describe("Azubi schedule outside school term", () => {
       seed: "azubi-outside",
     });
 
-    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(154 * 60);
+    expect(shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(140 * 60);
     const minutesByWeek = new Map<string, number>();
     for (const shift of shifts) {
       const key = weekKey(shift.date);
       minutesByWeek.set(key, (minutesByWeek.get(key) ?? 0) + shift.paidMinutes);
     }
     for (const minutes of minutesByWeek.values()) {
-      expect(minutes).toBeLessThanOrEqual(AZUBI_HOURS_OUT_OF_TERM * 60);
+      expect(minutes).toBeLessThanOrEqual(35 * 60);
     }
   });
 });
 
 describe("Azubi rule validation", () => {
+  it("rejects a configured weekly target above the legal term limit", () => {
+    const employee = withAutomaticAzubiTarget({
+      id: "AZ-OVER-LIMIT",
+      name: "Azubi over limit",
+      employmentType: "AZUBI",
+      targetMinutes: 0,
+      azubi: {
+        inSchoolTerm: true,
+        schoolDays: ["monday", "tuesday"],
+        weeklyHoursInTerm: 25,
+        weeklyHoursOutOfTerm: 35,
+      },
+    });
+
+    expect(() =>
+      generateSchedule({
+        year: 2026,
+        month: 9,
+        workHours: DEFAULT_WORK_HOURS,
+        employees: [employee],
+      }),
+    ).toThrow(/24h/);
+  });
+
   it("requires exactly two school days before generating", () => {
     const employee = withAutomaticAzubiTarget({
       id: "AZ-SCHOOL-DAYS",

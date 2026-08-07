@@ -9,7 +9,6 @@ import {
 } from "../lib/demand";
 import { minutesToShortHours, minutesToTime } from "../lib/time";
 import { signedHours } from "../lib/dateFormat";
-import { scheduleToCsv, downloadCsv } from "../lib/csv";
 import { monthLabel } from "../lib/shiftOps";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
@@ -82,18 +81,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
         >
           Tạo lịch làm việc
-        </button>
-        <button
-          onClick={() => {
-            void downloadCsv(
-              `Lich_lam_viec_${schedule.year}-${String(schedule.month).padStart(2, "0")}.csv`,
-              scheduleToCsv(schedule),
-            );
-          }}
-          disabled={schedule.shifts.length === 0}
-          className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
-        >
-          Xuất CSV
         </button>
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>
