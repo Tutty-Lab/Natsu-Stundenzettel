@@ -68,11 +68,13 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => {
-                if (confirm("Xoá toàn bộ dữ liệu?")) store.resetAll();
+                if (confirm(`Xoá toàn bộ dữ liệu của ${store.schedule.companyName}?`)) {
+                  store.resetAll();
+                }
               }}
               className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
             >
-              Xoá dữ liệu
+              Xoá dữ liệu cửa hàng này
             </button>
             <button
               onClick={() => {

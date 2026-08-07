@@ -3,7 +3,8 @@
 Web-App zur **automatischen Erstellung monatlicher Dienstpläne** und **druckbarer
 deutscher Stundenzettel** für ein Restaurant / Geschäft in Deutschland.
 
-- Supabase synchronisiert den kompletten App-Zustand zwischen Geräten.
+- Supabase synchronisiert den kompletten App-Zustand zwischen Geräten und
+  trennt Natsu und Nava über eigene `store_id`-Datensätze.
 - Deterministischer, heuristischer Greedy-Algorithmus.
 - Der Plan trifft **jedes monatliche Soll exakt** und lässt sich anschließend
   manuell bearbeiten.
@@ -38,7 +39,8 @@ npm run preview  # Produktions-Build lokal ansehen
 
 ## Bedienung
 
-1. **Einstellungen** – Firmenname, Anschrift, Monat, Jahr; **Arbeitszeit-Fenster
+1. **Einstellungen** – Filiale auswählen; Mitarbeiter, Dienstplan und lokaler
+   Cache bleiben je Filiale getrennt. Außerdem Monat, Jahr und **Arbeitszeit-Fenster
    je Wochentag + Feiertag** (giờ làm; Standard: Mo–Sa 10:30–22:00, So & Feiertag
    11:30–22:00). **Feiertage (NRW)** werden automatisch erkannt und angezeigt.
    Unter **„Ngày đặc biệt"** lassen sich einzelne Tage überschreiben
@@ -81,6 +83,7 @@ src/
     validation.ts          Prüfung aller Regeln
     csv.ts                 CSV-Export
     storage.ts             LocalStorage
+    stores.ts              feste Filialdaten und zuletzt gewählte Filiale
     sampleData.ts          Testdaten (August 2026, 1022 h) – nur für Tests
     shiftOps.ts            manuelles Bearbeiten von Schichten
     dateFormat.ts          deutsche Monatsnamen / Formatierung

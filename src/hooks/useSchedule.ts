@@ -16,14 +16,14 @@ import {
   type DateOverride,
   type OverrideMap,
 } from "../lib/workHours";
-import { COMPANY_ADDRESS, COMPANY_ID, COMPANY_NAME } from "../lib/company";
+import { loadStoreId, saveStoreId, storeById, type StoreConfig } from "../lib/stores";
 import { defaultAzubiConfig, withAutomaticAzubiTarget } from "../lib/azubi";
 
-function emptySchedule(): Schedule {
+function emptySchedule(store: StoreConfig): Schedule {
   const now = new Date();
   return {
-    companyName: COMPANY_NAME,
-    address: COMPANY_ADDRESS,
+    companyName: store.name,
+    address: store.address,
     year: now.getFullYear(),
     month: now.getMonth() + 1,
     workHours: structuredClone(DEFAULT_WORK_HOURS),
@@ -41,14 +41,14 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
 }
 
 /** Migriert einen (evtl. alten) gespeicherten Stand auf das aktuelle Schema. */
-function normalizeSchedule(raw: Schedule | undefined): Schedule {
-  const base = emptySchedule();
+function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Schedule {
+  const base = emptySchedule(store);
   if (!raw) return base;
   const employees = (raw.employees ?? []).map(withAutomaticAzubiTarget);
   return {
     // Firmenname & Adresse sind fest (không cho sửa) – immer erzwingen.
-    companyName: COMPANY_NAME,
-    address: COMPANY_ADDRESS,
+    companyName: store.name,
+    address: store.address,
     year: raw.year ?? base.year,
     month: raw.month ?? base.month,
     workHours: normalizeWorkHours(raw.workHours),
@@ -63,12 +63,15 @@ function newEmployeeId(): string {
 }
 
 export function useSchedule() {
+  const [storeId, setStoreIdState] = useState<string>(() => loadStoreId());
+  const storeConfig = storeById(storeId);
+
   const [schedule, setSchedule] = useState<Schedule>(() => {
-    const persisted = loadState();
-    return normalizeSchedule(persisted?.schedule);
+    const persisted = loadState(storeId);
+    return normalizeSchedule(persisted?.schedule, storeById(storeId));
   });
   const [originalShifts, setOriginalShifts] = useState<Shift[]>(() => {
-    const persisted = loadState();
+    const persisted = loadState(storeId);
     return persisted?.originalShifts ?? [];
   });
   const [genError, setGenError] = useState<string | null>(null);
@@ -78,8 +81,8 @@ export function useSchedule() {
 
   // Save immediately to localStorage so the app remains usable offline.
   useEffect(() => {
-    saveState({ schedule, originalShifts });
-  }, [schedule, originalShifts]);
+    saveState(storeId, { schedule, originalShifts });
+  }, [storeId, schedule, originalShifts]);
 
   const latest = useRef<PersistedState>({ schedule, originalShifts });
   useEffect(() => {
@@ -87,7 +90,7 @@ export function useSchedule() {
   }, [schedule, originalShifts]);
 
   // Hydrate from Supabase before remote writes are allowed. If no cloud row
-  // exists yet, upload the current local state as the initial Natsu dataset.
+  // exists yet, upload the current local state as the initial store dataset.
   const hydrated = useRef(!isRemoteConfigured);
   useEffect(() => {
     if (!isRemoteConfigured) return;
@@ -97,14 +100,14 @@ export function useSchedule() {
 
     void (async () => {
       try {
-        const remote = await loadRemote(COMPANY_ID);
+        const remote = await loadRemote(storeId);
         if (cancelled) return;
 
         if (remote?.schedule) {
-          setSchedule(normalizeSchedule(remote.schedule));
+          setSchedule(normalizeSchedule(remote.schedule, storeById(storeId)));
           setOriginalShifts(remote.originalShifts ?? []);
         } else {
-          await saveRemote(COMPANY_ID, latest.current);
+          await saveRemote(storeId, latest.current);
         }
 
         if (!cancelled) setRemoteStatus("idle");
@@ -118,7 +121,7 @@ export function useSchedule() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storeId]);
 
   // Debounce cloud writes so editing an input does not send one request per keypress.
   useEffect(() => {
@@ -126,13 +129,31 @@ export function useSchedule() {
 
     const timer = window.setTimeout(() => {
       setRemoteStatus("saving");
-      saveRemote(COMPANY_ID, { schedule, originalShifts })
+      saveRemote(storeId, { schedule, originalShifts })
         .then(() => setRemoteStatus("idle"))
         .catch(() => setRemoteStatus("error"));
     }, 1000);
 
     return () => window.clearTimeout(timer);
-  }, [schedule, originalShifts]);
+  }, [storeId, schedule, originalShifts]);
+
+  const storeIdRef = useRef(storeId);
+  useEffect(() => {
+    storeIdRef.current = storeId;
+  }, [storeId]);
+
+  const setStoreId = useCallback((next: string) => {
+    const nextStore = storeById(next);
+    if (nextStore.id === storeIdRef.current) return;
+
+    saveStoreId(nextStore.id);
+    const cached = loadState(nextStore.id);
+    setSchedule(normalizeSchedule(cached?.schedule, nextStore));
+    setOriginalShifts(cached?.originalShifts ?? []);
+    setGenError(null);
+    setRemoteStatus(isRemoteConfigured ? "idle" : "off");
+    setStoreIdState(nextStore.id);
+  }, []);
 
   const validation: ValidationResult = useMemo(
     () => validateSchedule(schedule.employees, schedule.shifts),
@@ -208,15 +229,15 @@ export function useSchedule() {
   }, [originalShifts]);
 
   const resetAll = useCallback(() => {
-    clearState();
-    setSchedule(emptySchedule());
+    clearState(storeId);
+    setSchedule(emptySchedule(storeById(storeId)));
     setOriginalShifts([]);
     setGenError(null);
-  }, []);
+  }, [storeId]);
 
   const saveNow = useCallback(() => {
-    saveState({ schedule, originalShifts });
-  }, [schedule, originalShifts]);
+    saveState(storeId, { schedule, originalShifts });
+  }, [storeId, schedule, originalShifts]);
 
   // ----- Ausnahmen je Datum -----
   const upsertOverride = useCallback((override: DateOverride) => {
@@ -296,6 +317,9 @@ export function useSchedule() {
   }, []);
 
   return {
+    storeId,
+    storeConfig,
+    setStoreId,
     schedule,
     originalShifts,
     validation,

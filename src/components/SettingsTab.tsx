@@ -13,6 +13,7 @@ import {
 import type { DayWindow, WorkHoursConfig } from "../lib/workHours";
 import { nrwHolidayNames } from "../lib/holidays";
 import { isoLabel } from "../lib/shiftOps";
+import { STORES } from "../lib/stores";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -153,6 +154,25 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
       <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900 mb-4">Cài đặt chung</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <Field label="Cửa hàng">
+              <select
+                className={inputClass}
+                value={store.storeId}
+                onChange={(event) => store.setStoreId(event.target.value)}
+              >
+                {STORES.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Mỗi cửa hàng có danh sách nhân viên, lịch làm việc và dữ liệu đồng bộ riêng.
+              </p>
+            </Field>
+          </div>
+
           <div className="md:col-span-2">
             <Field label="Tên công ty / cửa hàng">
               <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
