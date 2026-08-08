@@ -20,7 +20,12 @@ function isWeekendKey(iso: string): boolean {
 
 function cellClass(shift: Shift | undefined): string {
   if (!shift) return "shift-free";
-  const base = shift.shiftType === "EARLY" ? "shift-early" : "shift-late";
+  const base =
+    shift.shiftType === "EARLY"
+      ? "shift-early"
+      : shift.shiftType === "MID"
+        ? "shift-mid"
+        : "shift-late";
   return `${base} ${!shift.generated ? "shift-custom" : ""}`;
 }
 
@@ -56,14 +61,18 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
 
   // Tổng theo ngày cho các dòng chân bảng.
   const dayStats = useMemo(() => {
-    const stats = new Map<string, { count: number; total: number; early: number; late: number }>();
-    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, late: 0 });
+    const stats = new Map<
+      string,
+      { count: number; total: number; early: number; mid: number; late: number }
+    >();
+    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, mid: 0, late: 0 });
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
       st.count += 1;
       st.total += s.paidMinutes;
       if (s.shiftType === "EARLY") st.early += 1;
+      else if (s.shiftType === "MID") st.mid += 1;
       else st.late += 1; // LATE hoặc CUSTOM tính là ca tối
     }
     return stats;
@@ -133,6 +142,9 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-3 w-3 rounded border shift-late" /> Ca tối
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded border shift-mid" /> Ca chuyển tiếp
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-3 w-3 rounded border shift-free" /> Nghỉ
@@ -233,7 +245,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                                 {minutesToTime(shift.startMinutes)}–{minutesToTime(shift.endMinutes)}
                               </div>
                               <div className="text-[10px] opacity-80">
-                                {minutesToShortHours(shift.paidMinutes)} · Nghỉ {shift.pauseMinutes}
+                                {minutesToShortHours(shift.paidMinutes)}
+                                {shift.pauseMinutes > 0 && ` · Nghỉ ${shift.pauseMinutes}`}
                               </div>
                             </div>
                           ) : (
@@ -267,6 +280,11 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                 value={(d) => minutesToShortHours(dayStats.get(d)!.total)}
               />
               <SummaryRow label="Ca sáng" dates={dates} value={(d) => String(dayStats.get(d)!.early)} />
+              <SummaryRow
+                label="Ca chuyển tiếp"
+                dates={dates}
+                value={(d) => String(dayStats.get(d)!.mid)}
+              />
               <SummaryRow label="Ca tối" dates={dates} value={(d) => String(dayStats.get(d)!.late)} />
             </tfoot>
           </table>

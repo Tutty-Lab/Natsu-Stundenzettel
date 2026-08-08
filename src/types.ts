@@ -31,7 +31,7 @@ export const AZUBI_HOURS_IN_TERM = 24;
 export const AZUBI_HOURS_OUT_OF_TERM = 38.5;
 export const AZUBI_WORKDAYS_IN_TERM = 3;
 
-export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
+export type ShiftType = "EARLY" | "MID" | "LATE" | "CUSTOM";
 
 export type Employee = {
   id: string;

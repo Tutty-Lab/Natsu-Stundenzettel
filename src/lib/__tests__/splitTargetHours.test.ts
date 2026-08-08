@@ -41,11 +41,17 @@ describe("splitTargetHours – Teilzeit", () => {
     }
   });
 
-  it("55 = 11×5, 80 = 16×5, 79 = 11×5 + 4×6", () => {
-    expect(splitTargetHours(55, "TEILZEIT")).toEqual(Array(11).fill(5));
-    expect(splitTargetHours(80, "TEILZEIT")).toEqual(Array(16).fill(5));
-    const s79 = splitTargetHours(79, "TEILZEIT").slice().sort((a, b) => a - b);
-    expect(s79).toEqual([...Array(11).fill(5), ...Array(4).fill(6)].sort((a, b) => a - b));
+  it("adds about two shorter visits compared with the former 5h baseline", () => {
+    expect(splitTargetHours(40, "TEILZEIT")).toEqual(Array(10).fill(4));
+    expect(splitTargetHours(55, "TEILZEIT")).toHaveLength(13);
+    expect(splitTargetHours(79, "TEILZEIT")).toHaveLength(18);
+    expect(splitTargetHours(80, "TEILZEIT")).toHaveLength(18);
+
+    for (const hours of [55, 79, 80]) {
+      const parts = splitTargetHours(hours, "TEILZEIT");
+      expect(sum(parts)).toBe(hours);
+      expect(parts.filter((part) => part === 4).length).toBeGreaterThan(parts.length / 2);
+    }
   });
 });
 

@@ -32,6 +32,7 @@ import {
   type WeekdayKey,
 } from "./demand";
 import { getShiftTemplate, type TemplateType } from "./shifts";
+import { preferredPartTimeShiftCount } from "./splitTargetHours";
 import { consecutiveRunLengthWith, seededRandom } from "./consecutive";
 import { presenceFromPaid } from "./time";
 import {
@@ -70,6 +71,8 @@ type SchedulerState = {
   worked: Map<string, Set<string>>; // employeeId -> Set<ISO>
   weekendCount: Map<string, number>; // employeeId -> Anzahl Fr/Sa-Schichten
   weekMinutes: Map<string, Map<string, number>>;
+  shiftCounts: Map<string, number>;
+  targetShiftCounts: Map<string, number>;
   remaining: Map<string, number>; // employeeId -> noch zu verplanende Minuten
   shifts: Shift[];
   /** Für Nachfrage/Spätquote maßgeblicher Wochentag (Feiertag = Sonntag). */
@@ -128,7 +131,30 @@ function isSchoolDay(employee: Employee, isoDate: string): boolean {
   );
 }
 
+/** Maximum number of valid workdays in a month under the six-day rule. */
+function maxWorkdaysInMonth(
+  dates: string[],
+  dayOf: (isoDate: string) => ResolvedDay,
+): number {
+  let run = 0;
+  let count = 0;
+  for (const isoDate of dates) {
+    if (dayOf(isoDate).closed) {
+      run = 0;
+      continue;
+    }
+    if (run >= 6) {
+      run = 0;
+      continue;
+    }
+    run += 1;
+    count += 1;
+  }
+  return count;
+}
+
 const SHIFT_HOURS_DESC = [8, 7, 6, 5, 4] as const;
+const SHIFT_HOURS_ASC = [4, 5, 6, 7, 8] as const;
 
 /** Größte Schichtlänge (Stunden), deren Anwesenheit noch ins Fenster passt (0 = keine). */
 export function maxShiftHoursForWindow(windowMinutes: number): number {
@@ -152,10 +178,36 @@ export function chooseShiftHours(
   remainingMinutes: number,
   maxHours: number,
   employmentType: Employee["employmentType"],
+  rng?: () => number,
+  shiftsLeft?: number,
 ): number {
   const remainingHours = remainingMinutes / 60;
   const cap = Math.min(8, maxHours, remainingHours);
   if (cap < 4) return 0;
+
+  // Teilzeit with a target count is solved as an exact bounded composition.
+  // This keeps 40h at ten 4h visits while still allowing seeded variation for
+  // larger monthly targets.
+  if (
+    employmentType === "TEILZEIT" &&
+    rng &&
+    shiftsLeft !== undefined &&
+    shiftsLeft > 0 &&
+    Number.isInteger(remainingHours)
+  ) {
+    const candidates = SHIFT_HOURS_ASC.filter(
+      (hours) =>
+        hours <= cap &&
+        remainingHours - hours >= 4 * (shiftsLeft - 1) &&
+        remainingHours - hours <= 8 * (shiftsLeft - 1),
+    );
+    if (candidates.length > 0) {
+      // Favor the short end, but keep enough entropy that two seeds do not
+      // produce identical 5h-only plans.
+      const shortCandidates = candidates.filter((hours) => hours <= candidates[0] + 2);
+      return shortCandidates[Math.floor(rng() * shortCandidates.length)];
+    }
+  }
 
   // Präferenz-Reihenfolge: Vollzeit lange Schichten, Teilzeit mittlere/kurze.
   const preference =
@@ -192,8 +244,34 @@ function orderedEmployees(employees: Employee[]): Employee[] {
 function chooseTemplateType(
   state: SchedulerState,
   isoDate: string,
-  employmentType: Employee["employmentType"],
+  employee: Employee,
+  paidMinutes: number,
 ): TemplateType {
+  const day = state.dayOf(isoDate);
+  const presence = presenceFromPaid(paidMinutes);
+  const transitionStart = 15 * 60 + 30;
+  const canBridgeTransition =
+    employee.employmentType === "TEILZEIT" &&
+    paidMinutes <= 6 * 60 &&
+    day.window.startMinutes <= transitionStart &&
+    transitionStart + presence <= day.window.endMinutes;
+  const currentMidCount = state.shifts.filter(
+    (shift) => shift.employeeId === employee.id && shift.shiftType === "MID",
+  ).length;
+  const dateHasMid = state.shifts.some(
+    (shift) => shift.date === isoDate && shift.shiftType === "MID",
+  );
+
+  // Every part-time employee receives at least two transition visits. Further
+  // short visits may also land here based on the deterministic seed.
+  if (
+    canBridgeTransition &&
+    !dateHasMid &&
+    (currentMidCount < 2 || state.rng() < 0.2)
+  ) {
+    return "MID";
+  }
+
   const ds = state.dateState.get(isoDate)!;
   const effKey = state.effKeyOf(isoDate);
   const desired = LATE_SHIFT_RATIOS[effKey];
@@ -201,7 +279,7 @@ function chooseTemplateType(
 
   // Teilzeit tendenziell in Spätschichten; Sonntag/Feiertag stark abends.
   let threshold = desired;
-  if (employmentType === "TEILZEIT") threshold += 0.15;
+  if (employee.employmentType === "TEILZEIT") threshold += 0.15;
   if (effKey === "sunday") threshold = Math.max(threshold, 0.95);
 
   return currentLateRatio < threshold ? "LATE" : "EARLY";
@@ -212,8 +290,9 @@ function makeShift(
   employee: Employee,
   isoDate: string,
   paidMinutes: number,
+  forcedType?: TemplateType,
 ): Shift {
-  const type = chooseTemplateType(state, isoDate, employee.employmentType);
+  const type = forcedType ?? chooseTemplateType(state, isoDate, employee, paidMinutes);
   const win = state.dayOf(isoDate).window;
   const tpl = getShiftTemplate(paidMinutes / 60, type, win.startMinutes, win.endMinutes);
   return {
@@ -233,8 +312,13 @@ function applyShift(state: SchedulerState, shift: Shift): void {
   const ds = state.dateState.get(shift.date)!;
   ds.totalPaid += shift.paidMinutes;
   if (shift.shiftType === "LATE") ds.latePaid += shift.paidMinutes;
+  else if (shift.shiftType === "MID") ds.latePaid += shift.paidMinutes / 2;
   ds.count += 1;
   state.worked.get(shift.employeeId)!.add(shift.date);
+  state.shiftCounts.set(
+    shift.employeeId,
+    (state.shiftCounts.get(shift.employeeId) ?? 0) + 1,
+  );
   const weekMinutes = state.weekMinutes.get(shift.employeeId)!;
   const weekKey = weekKeyOf(shift.date);
   weekMinutes.set(weekKey, (weekMinutes.get(weekKey) ?? 0) + shift.paidMinutes);
@@ -257,12 +341,21 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
 
   const worked = state.worked.get(employee.id)!;
   const weekendCount = state.weekendCount.get(employee.id) ?? 0;
+  const targetShiftCount = state.targetShiftCounts.get(employee.id);
+  const completedShiftCount = state.shiftCounts.get(employee.id) ?? 0;
+  const shiftsLeft =
+    targetShiftCount === undefined ? undefined : targetShiftCount - completedShiftCount;
+  const currentMidCount = state.shifts.filter(
+    (shift) => shift.employeeId === employee.id && shift.shiftType === "MID",
+  ).length;
+  const needsTransitionVisit = employee.employmentType === "TEILZEIT" && currentMidCount < 2;
 
   let bestDate: string | null = null;
   let bestHours = 0;
   let bestScore = Number.NEGATIVE_INFINITY;
-  let fallbackDate: string | null = null; // gültiger Tag, ignoriert 6-Tage-Regel
-  let fallbackHours = 0;
+  let bestTransitionDate: string | null = null;
+  let bestTransitionHours = 0;
+  let bestTransitionScore = Number.NEGATIVE_INFINITY;
 
   for (const isoDate of state.dates) {
     if (worked.has(isoDate)) continue; // max. ein Dienst pro Tag
@@ -287,13 +380,14 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       maxShiftHoursForWindow(windowLength(day)),
       availableMinutes / 60,
     );
-    const hours = chooseShiftHours(remaining, maxHours, employee.employmentType);
+    const hours = chooseShiftHours(
+      remaining,
+      maxHours,
+      employee.employmentType,
+      employee.employmentType === "TEILZEIT" ? state.rng : undefined,
+      shiftsLeft,
+    );
     if (hours === 0) continue; // hier passt keine gültige Schicht
-
-    if (fallbackDate === null) {
-      fallbackDate = isoDate;
-      fallbackHours = hours;
-    }
 
     const runLength = consecutiveRunLengthWith(worked, isoDate);
     if (runLength > 6) continue; // harte Regel
@@ -314,6 +408,21 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       weekendPenalty +
       jitter;
 
+    const transitionStart = 15 * 60 + 30;
+    const canBridgeTransition =
+      employee.employmentType === "TEILZEIT" &&
+      hours <= 6 &&
+      day.window.startMinutes <= transitionStart &&
+      transitionStart + presenceFromPaid(hours * 60) <= day.window.endMinutes;
+    const hasMidOnDate = state.shifts.some(
+      (shift) => shift.date === isoDate && shift.shiftType === "MID",
+    );
+    if (needsTransitionVisit && canBridgeTransition && !hasMidOnDate && score > bestTransitionScore) {
+      bestTransitionScore = score;
+      bestTransitionDate = isoDate;
+      bestTransitionHours = hours;
+    }
+
     if (score > bestScore) {
       bestScore = score;
       bestDate = isoDate;
@@ -321,11 +430,12 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     }
   }
 
-  const target = bestDate ?? fallbackDate;
-  const hours = bestDate ? bestHours : fallbackHours;
-  if (target === null || hours === 0) return false;
+  // A schedule must never use a seventh consecutive day as a fallback.
+  const targetDate = bestTransitionDate ?? bestDate;
+  const targetHours = bestTransitionDate ? bestTransitionHours : bestHours;
+  if (targetDate === null || targetHours === 0) return false;
 
-  const shift = makeShift(state, employee, target, hours * 60);
+  const shift = makeShift(state, employee, targetDate, targetHours * 60);
   applyShift(state, shift);
   state.remaining.set(employee.id, remaining - shift.paidMinutes);
   return true;
@@ -342,8 +452,13 @@ function removeShift(state: SchedulerState, shift: Shift): void {
   const ds = state.dateState.get(shift.date)!;
   ds.totalPaid -= shift.paidMinutes;
   if (shift.shiftType === "LATE") ds.latePaid -= shift.paidMinutes;
+  else if (shift.shiftType === "MID") ds.latePaid -= shift.paidMinutes / 2;
   ds.count -= 1;
   state.worked.get(shift.employeeId)!.delete(shift.date);
+  state.shiftCounts.set(
+    shift.employeeId,
+    Math.max(0, (state.shiftCounts.get(shift.employeeId) ?? 0) - 1),
+  );
   const weekMinutes = state.weekMinutes.get(shift.employeeId)!;
   const weekKey = weekKeyOf(shift.date);
   weekMinutes.set(weekKey, (weekMinutes.get(weekKey) ?? 0) - shift.paidMinutes);
@@ -380,6 +495,15 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
       const presence = presenceFromPaid(shift.paidMinutes);
       for (const to of state.dates) {
         if (to === from || worked.has(to)) continue;
+        if (
+          shift.shiftType === "MID" &&
+          state.shifts.some(
+            (candidate) =>
+              candidate !== shift && candidate.date === to && candidate.shiftType === "MID",
+          )
+        ) {
+          continue;
+        }
         const day = state.dayOf(to);
         if (day.closed || windowLength(day) < presence) continue; // geschlossen / passt nicht
         if (isSchoolDay(employee, to)) continue;
@@ -422,7 +546,16 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
 
       if (bestTarget) {
         removeShift(state, shift);
-        applyShift(state, makeShift(state, employee, bestTarget, shift.paidMinutes));
+        applyShift(
+          state,
+          makeShift(
+            state,
+            employee,
+            bestTarget,
+            shift.paidMinutes,
+            shift.shiftType === "MID" ? "MID" : undefined,
+          ),
+        );
         improved = true;
       }
     }
@@ -488,12 +621,29 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const worked = new Map<string, Set<string>>();
   const weekendCount = new Map<string, number>();
   const weekMinutes = new Map<string, Map<string, number>>();
+  const shiftCounts = new Map<string, number>();
+  const targetShiftCounts = new Map<string, number>();
   const remaining = new Map<string, number>();
   for (const d of dates) dateState.set(d, { totalPaid: 0, latePaid: 0, count: 0 });
   for (const e of employees) {
     worked.set(e.id, new Set());
     weekendCount.set(e.id, 0);
     weekMinutes.set(e.id, new Map());
+    shiftCounts.set(e.id, 0);
+    if (e.employmentType === "TEILZEIT" && e.targetMinutes % 60 === 0) {
+      const targetHours = e.targetMinutes / 60;
+      if (targetHours >= 4) {
+        const minimumCount = Math.ceil(targetHours / 8);
+        const preferredCount = preferredPartTimeShiftCount(targetHours);
+        targetShiftCounts.set(
+          e.id,
+          Math.min(
+            maxWorkdaysInMonth(dates, dayOf),
+            Math.max(minimumCount, preferredCount),
+          ),
+        );
+      }
+    }
     remaining.set(e.id, e.targetMinutes);
   }
 
@@ -508,6 +658,8 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     worked,
     weekendCount,
     weekMinutes,
+    shiftCounts,
+    targetShiftCounts,
     remaining,
     shifts: [],
     effKeyOf,

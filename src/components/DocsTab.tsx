@@ -135,7 +135,15 @@ export function DocsTab() {
           <b>ngắn hơn</b> (VD nửa buổi), ca sẽ <b>tự co ngắn lại</b> cho vừa khung — kể cả nhân viên toàn
           thời gian vẫn đi làm ca ngắn hôm đó, và <b>định mức tháng vẫn được bù đủ</b> ở các ngày khác.
         </p>
-        <p className="text-slate-600">Độ dài ca cho phép: 4, 5, 6, 7, 8 giờ (không có ca dưới 4h).</p>
+        <p className="text-slate-600">
+          Độ dài ca cho phép: 4, 5, 6, 7, 8 giờ (không có ca dưới 4h). Teilzeit được chia thành
+          nhiều lượt ngắn hơn: 40h = 10 ca × 4h; các mức khác thường thêm khoảng 2 ca và rải phần
+          giờ dư theo seed để mỗi lần tạo lịch có biến thiên ổn định.
+        </p>
+        <p className="text-slate-600">
+          Ca chuyển tiếp ngắn có thể bắt đầu lúc <b>15:30</b> để lấp khoảng giao ca buổi chiều,
+          thay vì chỉ dùng ca sáng kết thúc 15:30 và ca tối bắt đầu 17:00.
+        </p>
       </Section>
 
       <Section title="4) Ngày lễ (tự phát hiện — bang NRW)">

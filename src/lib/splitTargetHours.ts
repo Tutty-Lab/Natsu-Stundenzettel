@@ -7,12 +7,20 @@
 //
 // Vollzeit: bevorzugt 8-h-Schichten, minimiert die Anzahl der Schichten,
 //           4-7 h nur um das exakte Soll zu treffen.
-// Teilzeit: bevorzugt 4/5/6 h (Schwerpunkt 5), 7/8 h nur im Notfall,
-//           vermeidet unnötig viele Arbeitstage.
+// Teilzeit: plant bewusst mehr, kürzere Besuche. Ein Soll von 40 h wird
+//           beispielsweise zu 10 x 4 h statt zu 8 x 5 h.
 // ============================================================================
 
 import type { EmploymentType } from "../types";
 import { SHIFT_LENGTHS } from "./shifts";
+
+/** Gewünschte Anzahl Teilzeit-Schichten: ungefähr zwei mehr als 5h-Blöcke. */
+export function preferredPartTimeShiftCount(targetHours: number): number {
+  if (!Number.isInteger(targetHours) || targetHours <= 0) return 0;
+  const minimum = Math.ceil(targetHours / 8);
+  const maximum = Math.floor(targetHours / 4);
+  return Math.max(minimum, Math.min(maximum, Math.ceil(targetHours / 5) + 2));
+}
 
 /** Kosten je Schicht. Die DP minimiert die Gesamtkosten. */
 function shiftCost(length: number, type: EmploymentType): number {
@@ -21,10 +29,10 @@ function shiftCost(length: number, type: EmploymentType): number {
     // Rest mit möglichst großen Blöcken.
     return 100 - length * length;
   }
-  // TEILZEIT: fixe Basis je Schicht (weniger Tage bevorzugt) + Längen-Präferenz.
-  const base = 3;
-  const preference: Record<number, number> = { 5: 0, 6: 1, 4: 2, 7: 100, 8: 100 };
-  return base + preference[length];
+  // Teilzeit wird in der Hauptfunktion auf eine Zielanzahl Schichten verteilt;
+  // die Kosten halten die einzelnen Längen trotzdem möglichst kurz.
+  const preference: Record<number, number> = { 4: 0, 5: 1, 6: 3, 7: 8, 8: 14 };
+  return preference[length];
 }
 
 /**
@@ -38,6 +46,22 @@ export function splitTargetHours(
     throw new Error(`Giờ định mức phải là số nguyên không âm: ${targetHours}`);
   }
   if (targetHours === 0) return [];
+
+  if (employmentType === "TEILZEIT" && targetHours >= 4) {
+    const shiftCount = preferredPartTimeShiftCount(targetHours);
+    const result = Array.from({ length: shiftCount }, () => 4);
+    let extra = targetHours - shiftCount * 4;
+    // Spread the remainder over visits instead of creating one long shift.
+    // This keeps common targets such as 55h at 10x4h + 3x5h.
+    let index = 0;
+    while (extra > 0) {
+      const next = Math.min(1, extra, 8 - result[index]);
+      result[index] += next;
+      extra -= next;
+      index = (index + 1) % result.length;
+    }
+    return result.sort((a, b) => b - a);
+  }
 
   const INF = Number.POSITIVE_INFINITY;
   const dpCost = new Array<number>(targetHours + 1).fill(INF);

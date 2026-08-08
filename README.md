@@ -64,7 +64,11 @@ npm run preview  # Produktions-Build lokal ansehen
 - **Arbeitszeit-Fenster je Tag** (giờ làm): Früh am Fenster-Beginn, Spät am
   Fenster-Ende. Geschlossene Tage bekommen keine Schicht; an verkürzten Tagen
   werden nur passende (kurze) Schichten geplant.
-- Schichtlängen: 4, 5, 6, 7, 8 Stunden (Vorlagen für Früh/Spät).
+- Schichtlängen: 4, 5, 6, 7, 8 Stunden (Vorlagen für Früh/Spät und eine
+  Übergangsschicht ab 15:30).
+- Teilzeit wird bewusst in mehrere kurze Besuche geteilt: 40 h ergeben 10 × 4 h;
+  größere Sollstunden erhalten ungefähr zwei zusätzliche Besuche. Der Rest wird
+  deterministisch per Seed verteilt, damit neue Pläne variieren und reproduzierbar bleiben.
 
 ## Projektstruktur
 

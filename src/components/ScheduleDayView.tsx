@@ -62,7 +62,8 @@ export function ScheduleDayView({
 
   const totalMin = shiftsOfDay.reduce((a, s) => a + s.paidMinutes, 0);
   const earlyCount = shiftsOfDay.filter((s) => s.shiftType === "EARLY").length;
-  const lateCount = shiftsOfDay.length - earlyCount;
+  const midCount = shiftsOfDay.filter((s) => s.shiftType === "MID").length;
+  const lateCount = shiftsOfDay.length - earlyCount - midCount;
 
   const ov = overridesByDate.get(selected);
   const holiday = holidayNames.get(selected);
@@ -130,7 +131,7 @@ export function ScheduleDayView({
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
         <Summary label="Số NV" value={String(working.length)} />
         <Summary label="Tổng giờ" value={minutesToShortHours(totalMin)} />
-        <Summary label="Sáng / Tối" value={`${earlyCount} / ${lateCount}`} />
+        <Summary label="Sáng / Giữa / Tối" value={`${earlyCount} / ${midCount} / ${lateCount}`} />
       </div>
 
       {/* Danh sách người làm */}
@@ -143,13 +144,16 @@ export function ScheduleDayView({
           working.map((emp) => {
             const s = shiftByEmp.get(emp.id) as Shift;
             const isEarly = s.shiftType === "EARLY";
+            const isMid = s.shiftType === "MID";
+            const shiftClass = isEarly ? "shift-early" : isMid ? "shift-mid" : "shift-late";
+            const shiftLabel = isEarly ? "Ca sáng" : isMid ? "Ca chuyển tiếp" : "Ca tối";
             return (
               <button
                 key={emp.id}
                 onClick={() => onEdit(emp.id, selected)}
-                className={`w-full flex items-center gap-3 rounded-lg border p-3 text-left ${
-                  isEarly ? "shift-early" : "shift-late"
-                } ${!s.generated ? "shift-custom" : ""}`}
+                className={`w-full flex items-center gap-3 rounded-lg border p-3 text-left ${shiftClass} ${
+                  !s.generated ? "shift-custom" : ""
+                }`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{emp.name}</div>
@@ -159,7 +163,7 @@ export function ScheduleDayView({
                       : emp.employmentType === "AZUBI"
                         ? "Azubi (học nghề)"
                         : "Bán thời gian"} ·{" "}
-                    {isEarly ? "Ca sáng" : "Ca tối"}
+                    {shiftLabel}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -167,7 +171,8 @@ export function ScheduleDayView({
                     {minutesToTime(s.startMinutes)}–{minutesToTime(s.endMinutes)}
                   </div>
                   <div className="text-xs opacity-80">
-                    {minutesToShortHours(s.paidMinutes)} · Nghỉ {s.pauseMinutes}
+                    {minutesToShortHours(s.paidMinutes)}
+                    {s.pauseMinutes > 0 && ` · Nghỉ ${s.pauseMinutes}`}
                   </div>
                 </div>
               </button>

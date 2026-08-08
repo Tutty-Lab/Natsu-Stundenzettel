@@ -29,6 +29,9 @@ body {
 .shift-late {
   @apply bg-indigo-50 text-indigo-900 border-indigo-200;
 }
+.shift-mid {
+  @apply bg-teal-50 text-teal-900 border-teal-200;
+}
 .shift-free {
   @apply bg-slate-50 text-slate-400 border-slate-200;
 }
@@ -53,8 +56,17 @@ body {
 
 /* ===================== Druck: Stundenzettel ===================== */
 @media print {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
   body {
     background: #fff;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
   }
   .no-print {
     display: none !important;
@@ -64,6 +76,9 @@ body {
   }
   .stundenzettel-page {
     page-break-after: always;
+    width: 100%;
+    max-width: none;
+    margin: 0;
     padding: 0;
   }
   .stundenzettel-page:last-child {

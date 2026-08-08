@@ -55,6 +55,47 @@ describe("Stundenaufzeichnung fuer Natsu/Nava Azubi", () => {
     expect(html).not.toContain("Berufsschule");
     expect(html).not.toContain("Ausbildung - kein Einsatz");
   });
+
+  it("keeps the A4 table compact and hides empty pause labels", () => {
+    const employee: Employee = {
+      id: "TZ-PRINT",
+      name: "Teilzeit Print",
+      employmentType: "TEILZEIT",
+      targetMinutes: 4 * 60,
+    };
+    const schedule: Schedule = {
+      companyName: "NATSU Vietnamese and Japanese cuisine",
+      address: "Berliner Str. 61, 33330 Guetersloh",
+      year: 2026,
+      month: 8,
+      workHours: DEFAULT_WORK_HOURS,
+      dateOverrides: [],
+      employees: [employee],
+      shifts: [
+        {
+          id: "MID-1",
+          employeeId: employee.id,
+          date: "2026-08-03",
+          startMinutes: 15 * 60 + 30,
+          endMinutes: 19 * 60 + 30,
+          pauseMinutes: 0,
+          paidMinutes: 4 * 60,
+          shiftType: "MID",
+          generated: true,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      createElement(StundenzettelPage, { schedule, employee }),
+    );
+
+    expect(html).toContain("w-[210mm]");
+    expect(html).toContain("table-fixed");
+    expect(html).toContain("<colgroup>");
+    expect(html).toContain("15:30");
+    expect(html).not.toContain("0 Min");
+  });
 });
 
 describe("Natsu/Nava Azubi settings", () => {

@@ -7,7 +7,7 @@
 
 import { calculatePause, presenceFromPaid } from "./time";
 
-export type TemplateType = "EARLY" | "LATE";
+export type TemplateType = "EARLY" | "MID" | "LATE";
 
 export type ShiftTemplate = {
   paidMinutes: number;
@@ -60,7 +60,13 @@ export function getShiftTemplate(
   let startMinutes: number;
   let endMinutes: number;
 
-  if (isDefaultHours(openMinutes, closeMinutes) && SPEC_EARLY[paidHours]) {
+  if (type === "MID") {
+    // A short transition shift bridges the afternoon handover instead of
+    // leaving the 15:30–17:00 gap between the opening and closing templates.
+    const preferredStart = 15 * 60 + 30;
+    startMinutes = Math.max(openMinutes, Math.min(preferredStart, closeMinutes - presence));
+    endMinutes = startMinutes + presence;
+  } else if (isDefaultHours(openMinutes, closeMinutes) && SPEC_EARLY[paidHours]) {
     const spec = type === "EARLY" ? SPEC_EARLY[paidHours] : SPEC_LATE[paidHours];
     [startMinutes, endMinutes] = spec;
   } else if (type === "EARLY") {

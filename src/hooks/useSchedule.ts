@@ -210,6 +210,9 @@ export function useSchedule() {
         workHours: schedule.workHours,
         overrides: overridesToMap(schedule.dateOverrides),
         employees: schedule.employees,
+        // A fresh UI seed makes each click a useful alternative plan while
+        // direct scheduler calls remain deterministic when no seed is given.
+        seed: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       });
       setSchedule((s) => ({ ...s, shifts }));
       setOriginalShifts(shifts.map((sh) => ({ ...sh })));

@@ -50,19 +50,21 @@ export function StundenzettelPage({
   );
 
   return (
-    <div className="stundenzettel-page bg-white text-slate-900 mx-auto max-w-[210mm] p-6 text-[12px]">
-      <div className="flex items-start justify-between border-b-2 border-slate-800 pb-2 mb-3">
-        <div>
+    <div className="stundenzettel-page mx-auto w-[210mm] max-w-[210mm] bg-white p-[14mm] text-[12px] text-slate-900">
+      <div className="mb-3 flex items-start justify-between gap-4 border-b-2 border-slate-800 pb-2">
+        <div className="min-w-0">
           <h2 className="text-xl font-bold tracking-tight">Stundenaufzeichnung</h2>
-          <p className="text-slate-600">{schedule.companyName || "—"}</p>
-          {schedule.address && <p className="text-slate-500 text-[11px]">{schedule.address}</p>}
+          <p className="break-words text-slate-600">{schedule.companyName || "—"}</p>
+          {schedule.address && (
+            <p className="break-words text-[11px] text-slate-500">{schedule.address}</p>
+          )}
         </div>
-        <div className="text-right text-slate-600">
+        <div className="shrink-0 text-right text-slate-600">
           <div>{monthLabelDe(schedule.year, schedule.month)}</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-8 gap-y-1 mb-3">
+      <div className="mb-3 grid grid-cols-2 gap-x-6 gap-y-1">
         <Info label="Firmenname" value={schedule.companyName || "—"} />
         <Info
           label="Beschäftigungsart"
@@ -74,7 +76,16 @@ export function StundenzettelPage({
         <Info label="Jahr" value={String(schedule.year)} />
       </div>
 
-      <table className="w-full border-collapse text-[11px]">
+      <table className="w-full table-fixed border-collapse text-[10.5px] leading-tight">
+        <colgroup>
+          <col className="w-[16%]" />
+          <col className="w-[15%]" />
+          <col className="w-[14%]" />
+          <col className="w-[14%]" />
+          <col className="w-[9%]" />
+          <col className="w-[12%]" />
+          <col className="w-[20%]" />
+        </colgroup>
         <thead>
           <tr className="bg-slate-100">
             <Th>Datum</Th>
@@ -110,13 +121,21 @@ export function StundenzettelPage({
             }
             return (
               <tr key={d} className={isWeekend || holiday || closed ? "bg-slate-50" : ""}>
-                <Td>{format(parseIsoDate(d), "dd.MM.yyyy")}</Td>
-                <Td>{wd}</Td>
-                <Td className="text-center">{s ? minutesToTime(s.startMinutes) : ""}</Td>
-                <Td className="text-center">{s ? minutesToTime(s.endMinutes) : ""}</Td>
-                <Td className="text-center">{s ? `${s.pauseMinutes} Min` : ""}</Td>
-                <Td className="text-center">{s ? minutesToDecimalHours(s.paidMinutes) : "0,00"}</Td>
-                <Td className="text-left text-slate-500">{bemerkung}</Td>
+                <Td className="whitespace-nowrap">{format(parseIsoDate(d), "dd.MM.yyyy")}</Td>
+                <Td className="whitespace-nowrap">{wd}</Td>
+                <Td className="whitespace-nowrap text-center">
+                  {s ? minutesToTime(s.startMinutes) : ""}
+                </Td>
+                <Td className="whitespace-nowrap text-center">
+                  {s ? minutesToTime(s.endMinutes) : ""}
+                </Td>
+                <Td className="whitespace-nowrap text-center">
+                  {s && s.pauseMinutes > 0 ? `${s.pauseMinutes} Min` : ""}
+                </Td>
+                <Td className="whitespace-nowrap text-center">
+                  {s ? minutesToDecimalHours(s.paidMinutes) : "0,00"}
+                </Td>
+                <Td className="break-words text-left text-slate-500">{bemerkung}</Td>
               </tr>
             );
           })}
@@ -132,7 +151,7 @@ export function StundenzettelPage({
         </tfoot>
       </table>
 
-      <div className="mt-3 grid grid-cols-3 gap-4 text-[12px]">
+      <div className="mt-3 grid grid-cols-3 gap-4 text-[12px] break-inside-avoid">
         <div>
           <div className="text-slate-500">Gesamtstunden</div>
           <div className="font-semibold">{minutesToDecimalHours(totalMinutes)} h</div>
@@ -149,7 +168,7 @@ export function StundenzettelPage({
         </div>
       </div>
 
-      <div className="mt-10 grid grid-cols-3 gap-8 text-[11px]">
+      <div className="mt-7 grid grid-cols-3 gap-8 text-[11px] break-inside-avoid">
         <Signature label="Unterschrift Mitarbeiter" />
         <Signature label="Unterschrift Arbeitgeber" />
         <Signature label="Datum" />
@@ -160,16 +179,18 @@ export function StundenzettelPage({
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex gap-2">
-      <span className="text-slate-500 min-w-[110px]">{label}:</span>
-      <span className="font-medium">{value}</span>
+    <div className="flex min-w-0 gap-2">
+      <span className="min-w-[105px] shrink-0 text-slate-500">{label}:</span>
+      <span className="min-w-0 break-words font-medium">{value}</span>
     </div>
   );
 }
 
 function Th({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
   return (
-    <th className={`border border-slate-300 px-2 py-1 text-center font-semibold ${className}`}>
+    <th
+      className={`break-words border border-slate-300 px-1 py-1 text-center font-semibold ${className}`}
+    >
       {children}
     </th>
   );
@@ -185,7 +206,7 @@ function Td({
   colSpan?: number;
 }) {
   return (
-    <td colSpan={colSpan} className={`border border-slate-300 px-2 py-[3px] ${className}`}>
+    <td colSpan={colSpan} className={`border border-slate-300 px-1.5 py-[2px] ${className}`}>
       {children}
     </td>
   );
@@ -194,7 +215,7 @@ function Td({
 function Signature({ label }: { label: string }) {
   return (
     <div>
-      <div className="border-t border-slate-500 pt-1 mt-8 text-slate-600">{label}</div>
+      <div className="mt-7 border-t border-slate-500 pt-1 text-slate-600">{label}</div>
     </div>
   );
 }
