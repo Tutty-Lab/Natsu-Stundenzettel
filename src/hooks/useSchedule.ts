@@ -8,6 +8,7 @@ import type { Employee, EmploymentType, Schedule, Shift } from "../types";
 import { generateSchedule } from "../lib/scheduler";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
 import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
+import { MIN_PASSWORD_LENGTH, hashPassword, passwordMatches } from "../lib/auth";
 import { isRemoteConfigured, loadRemote, saveRemote, type RemoteStatus } from "../lib/remote";
 import { createManualShift, updateShiftTimes } from "../lib/shiftOps";
 import {
@@ -70,6 +71,9 @@ export function useSchedule() {
     const persisted = loadState(storeId);
     return normalizeSchedule(persisted?.schedule, storeById(storeId));
   });
+  const [passwordHash, setPasswordHash] = useState<string | undefined>(
+    () => loadState(loadStoreId())?.passwordHash,
+  );
   const [originalShifts, setOriginalShifts] = useState<Shift[]>(() => {
     const persisted = loadState(storeId);
     return persisted?.originalShifts ?? [];
@@ -81,13 +85,13 @@ export function useSchedule() {
 
   // Save immediately to localStorage so the app remains usable offline.
   useEffect(() => {
-    saveState(storeId, { schedule, originalShifts });
+    saveState(storeId, { schedule, originalShifts, passwordHash });
   }, [storeId, schedule, originalShifts]);
 
-  const latest = useRef<PersistedState>({ schedule, originalShifts });
+  const latest = useRef<PersistedState>({ schedule, originalShifts, passwordHash });
   useEffect(() => {
-    latest.current = { schedule, originalShifts };
-  }, [schedule, originalShifts]);
+    latest.current = { schedule, originalShifts, passwordHash };
+  }, [schedule, originalShifts, passwordHash]);
 
   // Hydrate from Supabase before remote writes are allowed. If no cloud row
   // exists yet, upload the current local state as the initial store dataset.
@@ -106,6 +110,7 @@ export function useSchedule() {
         if (remote?.schedule) {
           setSchedule(normalizeSchedule(remote.schedule, storeById(storeId)));
           setOriginalShifts(remote.originalShifts ?? []);
+          setPasswordHash(remote.passwordHash);
         } else {
           await saveRemote(storeId, latest.current);
         }
@@ -129,7 +134,7 @@ export function useSchedule() {
 
     const timer = window.setTimeout(() => {
       setRemoteStatus("saving");
-      saveRemote(storeId, { schedule, originalShifts })
+      saveRemote(storeId, { schedule, originalShifts, passwordHash })
         .then(() => setRemoteStatus("idle"))
         .catch(() => setRemoteStatus("error"));
     }, 1000);
@@ -239,7 +244,7 @@ export function useSchedule() {
   }, [storeId]);
 
   const saveNow = useCallback(() => {
-    saveState(storeId, { schedule, originalShifts });
+    saveState(storeId, { schedule, originalShifts, passwordHash });
   }, [storeId, schedule, originalShifts]);
 
   // ----- Ausnahmen je Datum -----
@@ -319,6 +324,39 @@ export function useSchedule() {
     });
   }, []);
 
+  /**
+   * Passwort dieser Filiale ändern. Gibt eine Meldung zurück oder null bei
+   * Erfolg.
+   *
+   * Das alte Passwort wird abgefragt, damit nicht jeder, der gerade vor dem
+   * offenen Tablet steht, die Filiale aussperren kann. Geschrieben wird sofort
+   * – wer nach dem Ändern gleich neu lädt, säße sonst vor dem alten Passwort.
+   */
+  const changePassword = useCallback(
+    async (alt: string, neu: string): Promise<string | null> => {
+      if (!(await passwordMatches(alt, latest.current.passwordHash))) {
+        return "Mật khẩu hiện tại không đúng.";
+      }
+      const sauber = neu.trim();
+      if (sauber.length < MIN_PASSWORD_LENGTH) {
+        return `Mật khẩu mới phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`;
+      }
+      const neuerHash = await hashPassword(sauber);
+      setPasswordHash(neuerHash);
+      const naechster = { ...latest.current, passwordHash: neuerHash };
+      saveState(storeId, naechster);
+      if (isRemoteConfigured) {
+        try {
+          await saveRemote(storeId, naechster);
+        } catch {
+          setRemoteStatus("error");
+        }
+      }
+      return null;
+    },
+    [storeId],
+  );
+
   return {
     storeId,
     storeConfig,
@@ -332,6 +370,8 @@ export function useSchedule() {
     addEmployee,
     updateEmployee,
     removeEmployee,
+    changePassword,
+    hasOwnPassword: passwordHash !== undefined,
     generate,
     resetToOriginal,
     resetAll,

@@ -10,6 +10,12 @@ const keyFor = (storeId: string) => `${LEGACY_STORAGE_KEY}:${storeId}`;
 
 export type PersistedState = {
   schedule: Schedule;
+  /**
+   * SHA-256 des Filial-Passworts. Fehlt es, gilt das Startpasswort.
+   * Liegt hier und nicht im Schedule, weil es zur FILIALE gehört und nicht zu
+   * einem einzelnen Monat – beim Monatswechsel darf es nicht verschwinden.
+   */
+  passwordHash?: string;
   /** Snapshot des zuletzt generierten Plans (für Reset). */
   originalShifts: Shift[];
 };
