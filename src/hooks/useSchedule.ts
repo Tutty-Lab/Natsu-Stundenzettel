@@ -116,10 +116,14 @@ export function useSchedule() {
         }
 
         if (!cancelled) setRemoteStatus("idle");
-      } catch {
-        if (!cancelled) setRemoteStatus("error");
-      } finally {
+        // NUR nach erfolgreichem Lesen darf hochgeladen werden.
         if (!cancelled) hydrated.current = true;
+      } catch {
+        // Lesen fehlgeschlagen: hydrated bleibt false, es wird NICHTS
+        // hochgeladen. Sonst überschreibt der leere lokale Stand die Daten in
+        // der Datenbank – genau so ist eine Filiale schon einmal leer geräumt
+        // worden: Netzfehler beim Start, danach ein Klick, und weg war alles.
+        if (!cancelled) setRemoteStatus("error");
       }
     })();
 
