@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Employee, EmploymentType, Schedule, Shift } from "../types";
+import type { Employee, Schedule, Shift } from "../types";
 import { generateSchedule } from "../lib/scheduler";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
 import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
@@ -175,22 +175,17 @@ export function useSchedule() {
   }, []);
 
   // ----- Mitarbeiter -----
-  const addEmployee = useCallback(
-    (name: string, employmentType: EmploymentType, targetHours: number) => {
-      const emp: Employee = {
-        id: newEmployeeId(),
-        name: name.trim() || "Neuer Mitarbeiter",
-        employmentType,
-        targetMinutes: Math.round(targetHours) * 60,
-        azubi: employmentType === "AZUBI" ? defaultAzubiConfig() : undefined,
-      };
-      setSchedule((s) => ({
-        ...s,
-        employees: [...s.employees, withAutomaticAzubiTarget(emp)],
-      }));
-    },
-    [],
-  );
+  const addEmployee = useCallback((data: Omit<Employee, "id">): string => {
+    const id = newEmployeeId();
+    const emp = withAutomaticAzubiTarget({
+      ...data,
+      id,
+      azubi:
+        data.employmentType === "AZUBI" ? data.azubi ?? defaultAzubiConfig() : undefined,
+    });
+    setSchedule((s) => ({ ...s, employees: [...s.employees, emp] }));
+    return id;
+  }, []);
 
   const updateEmployee = useCallback((id: string, patch: Partial<Employee>) => {
     setSchedule((s) => ({

@@ -3,6 +3,7 @@
 // niemals mit Fließkomma-Stunden.
 // ============================================================================
 
+import type { WeekdayKey } from "./lib/demand";
 import type { DateOverride, WorkHoursConfig } from "./lib/workHours";
 
 export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "AZUBI";
@@ -41,6 +42,13 @@ export type Employee = {
   targetMinutes: number;
   /** Only used when employmentType is AZUBI. */
   azubi?: AzubiConfig;
+  /** Wochentage, an denen die Person geplant werden darf. Leer = alle Tage. */
+  availableWeekdays?: WeekdayKey[];
+  /**
+   * Höchstzahl der Arbeitstage je Woche. Wird mit einem etwaigen Azubi-Cap
+   * kombiniert (das kleinere gewinnt). Fehlt = nur die Sechs-Tage-Regel.
+   */
+  maxDaysPerWeek?: number;
 };
 
 export type Shift = {

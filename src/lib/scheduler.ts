@@ -34,6 +34,7 @@ import {
 import { getShiftTemplate, type TemplateType } from "./shifts";
 import { preferredPartTimeShiftCount } from "./splitTargetHours";
 import { consecutiveRunLengthWith, seededRandom } from "./consecutive";
+import { worksOnWeekday } from "./availability";
 import { presenceFromPaid } from "./time";
 import {
   effectiveWeekdayKey,
@@ -110,8 +111,15 @@ function weeklyCapMinutes(employee: Employee): number | null {
 }
 
 function weeklyWorkdayCap(employee: Employee): number | null {
-  if (employee.employmentType !== "AZUBI") return null;
-  return azubiConfigOf(employee.azubi).inSchoolTerm ? AZUBI_WORKDAYS_IN_TERM : null;
+  const azubiCap =
+    employee.employmentType === "AZUBI" && azubiConfigOf(employee.azubi).inSchoolTerm
+      ? AZUBI_WORKDAYS_IN_TERM
+      : null;
+  // Vom Nutzer gesetzte Wochentage-Obergrenze; das kleinere Limit gewinnt.
+  const userCap = employee.maxDaysPerWeek ?? null;
+  if (azubiCap === null) return userCap;
+  if (userCap === null) return azubiCap;
+  return Math.min(azubiCap, userCap);
 }
 
 function workedDaysInWeek(worked: Set<string>, weekKey: string): number {
@@ -360,6 +368,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   for (const isoDate of state.dates) {
     if (worked.has(isoDate)) continue; // max. ein Dienst pro Tag
     if (isSchoolDay(employee, isoDate)) continue;
+    if (!worksOnWeekday(employee, isoDate)) continue; // fester freier Wochentag
     const day = state.dayOf(isoDate);
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
 
@@ -507,6 +516,7 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         const day = state.dayOf(to);
         if (day.closed || windowLength(day) < presence) continue; // geschlossen / passt nicht
         if (isSchoolDay(employee, to)) continue;
+        if (!worksOnWeekday(employee, to)) continue; // fester freier Wochentag
         // 6-Tage-Regel prüfen, als ob "from" bereits entfernt wäre.
         const trial = new Set(worked);
         trial.delete(from);
