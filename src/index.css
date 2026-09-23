@@ -44,17 +44,18 @@ body {
   display: none;
 }
 
-/* PDF pages must remain rendered for html2canvas, so stage them off-screen. */
-.pdf-stage {
-  position: absolute;
-  top: 0;
-  left: -10000px;
-  width: 210mm;
-  background: #fff;
-  pointer-events: none;
-}
 
 /* ===================== Druck: Stundenzettel ===================== */
+/* @page MUSS auf oberster Ebene stehen, NICHT in @media print geschachtelt:
+   Safari/iOS ignorieren ein verschachteltes @page und drucken dann doch die
+   Kopf-/Fußzeile des Browsers (Titel, Datum, .vercel.app-URL, Seitenzahl).
+   margin: 0 nimmt dieser Zeile den Platz – ohne Rand kein Header. Der
+   Seitenrand liegt stattdessen als Innenabstand auf dem Blatt selbst. */
+@page {
+  size: A4;
+  margin: 0;
+}
+
 @media print {
   html,
   body {
@@ -83,10 +84,6 @@ body {
   }
   .stundenzettel-page:last-child {
     page-break-after: auto;
-  }
-  @page {
-    size: A4;
-    margin: 0;
   }
 }
 

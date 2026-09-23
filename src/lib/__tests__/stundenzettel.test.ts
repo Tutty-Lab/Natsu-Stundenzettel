@@ -137,7 +137,7 @@ describe("Natsu/Nava Azubi settings", () => {
 });
 
 describe("Natsu/Nava timesheet actions", () => {
-  it("offers two PDF exports and two print actions without CSV", () => {
+  it("bietet Drucken und PDF je Auswahl an, ohne CSV", () => {
     const employee: Employee = withAutomaticAzubiTarget({
       id: "AZ-ACTIONS",
       name: "Azubi Actions",
@@ -162,10 +162,11 @@ describe("Natsu/Nava timesheet actions", () => {
 
     const html = renderToStaticMarkup(createElement(StundenzettelTab, { store }));
 
-    expect(html).toContain("Xuất PDF — người đang chọn");
-    expect(html).toContain("Xuất PDF — tất cả");
-    expect(html).toContain("In — người đang chọn");
-    expect(html).toContain("In — tất cả");
+    // Seit der Umstellung auf die Auswahl „Cho ai/Nội dung" gibt es je einen
+    // Knopf; wer gemeint ist, steht im Auswahlfeld darüber.
+    expect(html).toContain("Xuất PDF");
+    expect(html).toContain("In");
+    expect(html).toContain("Tất cả (cả quán)");
     expect(html).not.toContain("CSV");
   });
 });

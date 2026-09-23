@@ -20,7 +20,7 @@ describe("safeFileName", () => {
 describe("downloadPdfBlob", () => {
   it("downloads directly without opening a share sheet", () => {
     vi.useFakeTimers();
-    const anchor = { href: "", download: "", click: vi.fn() };
+    const anchor = { href: "", download: "", rel: "", style: {}, click: vi.fn() };
     const appendChild = vi.fn();
     const removeChild = vi.fn();
     const createObjectURL = vi.fn(() => "blob:pdf");
@@ -29,7 +29,7 @@ describe("downloadPdfBlob", () => {
     vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
     vi.stubGlobal("document", {
       createElement: vi.fn(() => anchor),
-      body: { appendChild, removeChild },
+      body: { appendChild, removeChild, contains: vi.fn(() => true) },
     });
 
     downloadPdfBlob(new Blob(["pdf"], { type: "application/pdf" }), "test.pdf");
@@ -38,9 +38,11 @@ describe("downloadPdfBlob", () => {
     expect(anchor.download).toBe("test.pdf");
     expect(appendChild).toHaveBeenCalledWith(anchor);
     expect(anchor.click).toHaveBeenCalledOnce();
-    expect(removeChild).toHaveBeenCalledWith(anchor);
 
+    // Anker und Objekt-URL werden erst nach dem Timer aufgeräumt – iOS lädt
+    // sonst noch, während der Link schon weg ist.
     vi.runAllTimers();
+    expect(removeChild).toHaveBeenCalledWith(anchor);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:pdf");
   });
 });

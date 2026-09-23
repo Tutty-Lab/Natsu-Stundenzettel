@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
-import { elementsToPdf, safeFileName } from "../lib/pdf";
+import { buildStundenzettelPdf, savePdf, safeFileName } from "../lib/pdf";
 import { StundenzettelPage } from "./StundenzettelPage";
 import { weeksOfMonth } from "../lib/weeks";
 
@@ -17,9 +17,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     [schedule.year, schedule.month],
   );
   const [printList, setPrintList] = useState<Employee[] | null>(null);
-  const [pdfList, setPdfList] = useState<Employee[] | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const pdfStage = useRef<HTMLDivElement>(null);
+  const [pdfProgress, setPdfProgress] = useState<string>("");
   // Zeitraum für den Stundenzettel: gesetzt => Wochen-Zettel, leer => Monat.
   const [szDates, setSzDates] = useState<string[] | undefined>(undefined);
   const [szLabel, setSzLabel] = useState<string | undefined>(undefined);
@@ -59,21 +58,24 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   ) {
     if (list.length === 0 || pdfBusy) return;
     setPdfBusy(true);
-    flushSync(() => {
-      setSzDates(sz?.dates);
-      setSzLabel(sz?.label);
-      setPdfList(list);
-    });
+    setPdfProgress(list.length > 1 ? `1/${list.length}` : "");
+    // Kurzer Yield, damit „Đang tạo PDF…" zuerst sichtbar wird.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     try {
-      const pages = Array.from(
-        pdfStage.current?.querySelectorAll<HTMLElement>(".stundenzettel-page") ?? [],
+      const doc = await buildStundenzettelPdf(
+        schedule,
+        list,
+        { dates: sz?.dates, periodLabel: sz?.label },
+        (current, total) => {
+          if (total > 1) setPdfProgress(`${current}/${total}`);
+        },
       );
-      await elementsToPdf(pages, filename);
+      savePdf(doc, filename);
     } catch (error) {
       alert(`Không tạo được PDF: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      setPdfList(null);
       setPdfBusy(false);
+      setPdfProgress("");
     }
   }
 
@@ -160,7 +162,11 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
               >
                 ⬇ Xuất PDF
               </button>
-              {pdfBusy && <span className="text-sm text-slate-500">Đang tạo PDF…</span>}
+              {pdfBusy && (
+                <span className="text-sm text-slate-500">
+                  {pdfProgress ? `Đang tạo PDF (${pdfProgress})…` : "Đang tạo PDF…"}
+                </span>
+              )}
             </div>
           </div>
           <p className="mt-2 text-xs text-slate-500">
@@ -198,18 +204,6 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
         ))}
       </div>
 
-      {/* Sân khấu ngoài màn hình – chỉ có nội dung trong lúc tạo PDF */}
-      <div ref={pdfStage} aria-hidden="true" className="pdf-stage no-print">
-        {(pdfList ?? []).map((emp) => (
-          <StundenzettelPage
-            key={emp.id}
-            schedule={schedule}
-            employee={emp}
-            dates={szDates}
-            periodLabel={szLabel}
-          />
-        ))}
-      </div>
     </>
   );
 }
