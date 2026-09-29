@@ -52,13 +52,19 @@ export function ScheduleDayView({
     () => schedule.shifts.filter((s) => s.date === selected),
     [schedule.shifts, selected],
   );
-  const shiftByEmp = useMemo(
-    () => new Map(shiftsOfDay.map((s) => [s.employeeId, s] as const)),
-    [shiftsOfDay],
-  );
+  // Ein Tag kann zwei Dienste je Person haben (mittags und abends) – deshalb
+  // eine LISTE je Mitarbeiter, nicht ein einzelner Dienst.
+  const shiftsByEmp = useMemo(() => {
+    const map = new Map<string, Shift[]>();
+    for (const shift of shiftsOfDay) {
+      map.set(shift.employeeId, [...(map.get(shift.employeeId) ?? []), shift]);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.startMinutes - b.startMinutes);
+    return map;
+  }, [shiftsOfDay]);
 
-  const working = schedule.employees.filter((e) => shiftByEmp.has(e.id));
-  const free = schedule.employees.filter((e) => !shiftByEmp.has(e.id));
+  const working = schedule.employees.filter((e) => shiftsByEmp.has(e.id));
+  const free = schedule.employees.filter((e) => !shiftsByEmp.has(e.id));
 
   const totalMin = shiftsOfDay.reduce((a, s) => a + s.paidMinutes, 0);
   const earlyCount = shiftsOfDay.filter((s) => s.shiftType === "EARLY").length;
@@ -129,7 +135,7 @@ export function ScheduleDayView({
 
       {/* Tóm tắt ngày */}
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-        <Summary label="Số NV" value={String(working.length)} />
+        <Summary label="Số NV" value={`${working.length}${shiftsOfDay.length > working.length ? ` (${shiftsOfDay.length} ca)` : ""}`} />
         <Summary label="Tổng giờ" value={minutesToShortHours(totalMin)} />
         <Summary label="Sáng / Giữa / Tối" value={`${earlyCount} / ${midCount} / ${lateCount}`} />
       </div>
@@ -142,7 +148,9 @@ export function ScheduleDayView({
           </div>
         ) : (
           working.map((emp) => {
-            const s = shiftByEmp.get(emp.id) as Shift;
+            // Alle Dienste der Person an diesem Tag – mittags UND abends.
+            const own = shiftsByEmp.get(emp.id) as Shift[];
+            const s = own[0];
             const isEarly = s.shiftType === "EARLY";
             const isMid = s.shiftType === "MID";
             const shiftClass = isEarly ? "shift-early" : isMid ? "shift-mid" : "shift-late";
@@ -156,7 +164,14 @@ export function ScheduleDayView({
                 }`}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{emp.name}</div>
+                  <div className="font-medium truncate">
+                    {emp.name}
+                    {own.length > 1 && (
+                      <span className="ml-1.5 rounded bg-slate-900/10 px-1 text-[10px] font-semibold">
+                        Ca gãy · {minutesToShortHours(own.reduce((sum, x) => sum + x.paidMinutes, 0))}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs opacity-80">
                     {emp.employmentType === "VOLLZEIT"
                       ? "Toàn thời gian"
@@ -174,6 +189,16 @@ export function ScheduleDayView({
                     {minutesToShortHours(s.paidMinutes)}
                     {s.pauseMinutes > 0 && ` · Nghỉ ${s.pauseMinutes}`}
                   </div>
+                  {own.slice(1).map((x) => (
+                    <div key={x.id} className="mt-1 border-t border-slate-300/70 pt-1">
+                      <div className="font-semibold">
+                        {minutesToTime(x.startMinutes)}–{minutesToTime(x.endMinutes)}
+                      </div>
+                      <div className="text-xs opacity-80">
+                        {minutesToShortHours(x.paidMinutes)} · Nghỉ {x.pauseMinutes}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </button>
             );

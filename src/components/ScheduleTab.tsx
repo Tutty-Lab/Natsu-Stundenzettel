@@ -63,13 +63,16 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   const dayStats = useMemo(() => {
     const stats = new Map<
       string,
-      { count: number; total: number; early: number; mid: number; late: number }
+      { people: Set<string>; shifts: number; total: number; early: number; mid: number; late: number }
     >();
-    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, mid: 0, late: 0 });
+    for (const d of dates) stats.set(d, { people: new Set(), shifts: 0, total: 0, early: 0, mid: 0, late: 0 });
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
-      st.count += 1;
+      // „Số nhân viên" zählt PERSONEN – wer zweimal am Tag arbeitet, ist eine
+      // Person mit zwei Diensten (Zeile „Số ca" darunter).
+      st.people.add(s.employeeId);
+      st.shifts += 1;
       st.total += s.paidMinutes;
       if (s.shiftType === "EARLY") st.early += 1;
       else if (s.shiftType === "MID") st.mid += 1;
@@ -273,7 +276,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               })}
             </tbody>
             <tfoot>
-              <SummaryRow label="Số nhân viên" dates={dates} value={(d) => String(dayStats.get(d)!.count)} />
+              <SummaryRow label="Số nhân viên" dates={dates} value={(d) => String(dayStats.get(d)!.people.size)} />
+              <SummaryRow label="Số ca" dates={dates} value={(d) => String(dayStats.get(d)!.shifts)} />
               <SummaryRow
                 label="Tổng giờ"
                 dates={dates}
