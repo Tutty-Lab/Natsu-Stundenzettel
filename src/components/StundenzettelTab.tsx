@@ -2,15 +2,17 @@ import { useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
-import { buildStundenzettelPdf, savePdf, safeFileName } from "../lib/pdf";
+import { buildStundenzettelPdf, buildWochenplanPdf, savePdf, safeFileName } from "../lib/pdf";
 import { StundenzettelPage } from "./StundenzettelPage";
+import { WochenplanPage } from "./WochenplanPage";
 import { weeksOfMonth } from "../lib/weeks";
 
 export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const { schedule } = store;
   // who: "all" = ganzer Laden, sonst eine employeeId.
   const [who, setWho] = useState<string>("all");
-  // what: "stundenzettel" (Monat) | "sz-<weekStart>" (Woche).
+  // what: "stundenzettel" (Stundenzettel, ganzer Monat) | "wp-<weekStart>"
+  // (Dienstplan der Woche – nach Tag und Schicht, nicht je Person).
   const [what, setWhat] = useState<string>("stundenzettel");
   const weeks = useMemo(
     () => weeksOfMonth(schedule.year, schedule.month),
@@ -22,6 +24,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   // Zeitraum für den Stundenzettel: gesetzt => Wochen-Zettel, leer => Monat.
   const [szDates, setSzDates] = useState<string[] | undefined>(undefined);
   const [szLabel, setSzLabel] = useState<string | undefined>(undefined);
+  // Wochenplan im Druckbereich (statt Stundenzettel je Person).
+  const [printWeek, setPrintWeek] = useState<{ dates: string[]; label: string } | null>(null);
 
   const monthTag = `${schedule.year}-${String(schedule.month).padStart(2, "0")}`;
 
@@ -32,8 +36,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     who === "all" ? schedule.employees[0] ?? null : chosenEmployees[0] ?? null;
   const whoTag = who === "all" ? "tat_ca" : safeFileName(previewEmployee?.name ?? who);
 
-  // Wochen-Stundenzettel: nur die Tage dieser Woche, mit Wochentitel oben rechts.
-  function szWeekFor(weekStart: string): { dates: string[]; label: string } | null {
+  // Woche: nur die Tage dieser Woche, mit Wochentitel oben rechts.
+  function weekFor(weekStart: string): { dates: string[]; label: string } | null {
     const w = weeks.find((x) => x.weekStart === weekStart);
     if (!w) return null;
     return { dates: w.dates, label: `Woche ${w.label}${schedule.year}` };
@@ -44,6 +48,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   function doPrint(list: Employee[], sz?: { dates?: string[]; label?: string }) {
     if (list.length === 0) return;
     flushSync(() => {
+      setPrintWeek(null);
       setSzDates(sz?.dates);
       setSzLabel(sz?.label);
       setPrintList(list);
@@ -79,21 +84,26 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     }
   }
 
+  const week = what.startsWith("wp-") ? weekFor(what.slice(3)) : null;
+
   function onPrint() {
-    if (what.startsWith("sz-")) {
-      const sz = szWeekFor(what.slice(3));
-      if (sz) doPrint(chosenEmployees, sz);
+    if (week) {
+      flushSync(() => {
+        setPrintList(null);
+        setPrintWeek(week);
+      });
+      window.print();
       return;
     }
     doPrint(chosenEmployees);
   }
 
   function onPdf() {
-    if (what.startsWith("sz-")) {
-      const weekStart = what.slice(3);
-      const sz = szWeekFor(weekStart);
-      if (sz) {
-        void doPdf(chosenEmployees, `Stundenzettel_${whoTag}_${monthTag}_tuan_${weekStart}.pdf`, sz);
+    if (week) {
+      try {
+        savePdf(buildWochenplanPdf(schedule, week.dates, week.label), `Dienstplan_${monthTag}_tuan_${what.slice(3)}.pdf`);
+      } catch (error) {
+        alert(`Không tạo được PDF: ${error instanceof Error ? error.message : String(error)}`);
       }
       return;
     }
@@ -119,7 +129,9 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
               <span className="text-xs text-slate-500">Cho ai</span>
               <select
                 className="rounded border border-slate-300 px-2 py-2 text-sm min-w-[10rem]"
-                value={who}
+                value={week ? "all" : who}
+                disabled={Boolean(week)}
+                title={week ? "Lịch tuần luôn in cho cả quán" : undefined}
                 onChange={(e) => setWho(e.target.value)}
               >
                 <option value="all">Tất cả (cả quán)</option>
@@ -140,8 +152,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
               >
                 <option value="stundenzettel">Bảng chấm công (Stundenzettel) — cả tháng</option>
                 {weeks.map((w) => (
-                  <option key={`sz-${w.weekStart}`} value={`sz-${w.weekStart}`}>
-                    Bảng chấm công (Stundenzettel) — tuần {w.label}
+                  <option key={`wp-${w.weekStart}`} value={`wp-${w.weekStart}`}>
+                    Lịch làm việc (Dienstplan) — tuần {w.label}
                   </option>
                 ))}
               </select>
@@ -171,14 +183,25 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
           </div>
           <p className="mt-2 text-xs text-slate-500">
             Tờ <span className="font-medium">Stundenaufzeichnung</span> theo mẫu tiếng Đức (dùng nộp
-            tại Đức) — một tờ mỗi người, chọn cả tháng hoặc từng tuần.{" "}
+            tại Đức) — một tờ mỗi người cho cả tháng. Chọn một <span className="font-medium">tuần</span> để in
+            lịch làm việc của tuần đó theo ngày và theo ca (một tờ cho cả quán).{" "}
             <span className="font-medium">Xuất PDF</span> tải thẳng file .pdf về máy; trên điện thoại
             mở bảng Chia sẻ. <span className="font-medium">In</span> mở hộp thoại in (chọn lề „Chuẩn",
             tỉ lệ 100 %).
           </p>
         </div>
 
-        {previewEmployee && (
+        {week && (
+          <>
+            <div className="mb-1 text-xs text-slate-500">Xem trước: lịch làm việc tuần</div>
+            <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
+              <div className="min-w-[760px]">
+                <WochenplanPage schedule={schedule} dates={week.dates} periodLabel={week.label} />
+              </div>
+            </div>
+          </>
+        )}
+        {!week && previewEmployee && (
           <>
             <div className="mb-1 text-xs text-slate-500">
               Xem trước: <b>{previewEmployee.name}</b>
@@ -193,6 +216,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
 
       {/* Vùng in ẩn: mỗi nhân viên một trang */}
       <div className="print-area">
+        {printWeek && <WochenplanPage schedule={schedule} dates={printWeek.dates} periodLabel={printWeek.label} />}
         {(printList ?? []).map((emp) => (
           <StundenzettelPage
             key={emp.id}

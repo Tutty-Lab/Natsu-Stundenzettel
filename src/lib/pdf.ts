@@ -525,6 +525,272 @@ export async function buildStundenzettelPdf(
   return doc;
 }
 
+// ── Wochen-Dienstplan (nach Tag und Schicht, nicht je Person) ───────────────
+// Der Aushang für die Woche: Spalten = Tage, Zeilen = Früh-/Mittel-/Spätschicht,
+// in jeder Zelle wer wann arbeitet. Das ist der Zeitplan für das Team – den
+// Stundenzettel je Person gibt es weiterhin für den Monat.
+
+export type WochenSchicht = "EARLY" | "MID" | "LATE";
+export const WOCHEN_SCHICHTEN: Array<{ key: WochenSchicht; label: string }> = [
+  { key: "EARLY", label: "Frühschicht" },
+  { key: "MID", label: "Mittelschicht" },
+  { key: "LATE", label: "Spätschicht" },
+];
+
+export type WochenGruppe = { time: string; names: string[] };
+
+export type WochenTag = {
+  date: string;
+  /** "Montag 06.10." */
+  head: string;
+  /** Feiertag / geschlossen – sonst leer. */
+  note: string;
+  closed: boolean;
+  /**
+   * Je Schicht die Leute, GEBÜNDELT nach Uhrzeit: "13:30-22:00" -> [A, B, C].
+   * Früher stand die Uhrzeit hinter jedem Namen – zehnmal dieselbe Zeit in
+   * einer Zelle, und lange Namen brachen mitten in der Uhrzeit um.
+   */
+  cells: Record<WochenSchicht, WochenGruppe[]>;
+  /** Wie viele Personen an dem Tag arbeiten. */
+  people: number;
+  /** Je Dienst ein Balken für die Zeitleiste – nach Beginn, dann Name sortiert. */
+  bars: WochenBalken[];
+};
+
+export type WochenBalken = {
+  name: string;
+  start: number;
+  end: number;
+  pause: number;
+  schicht: WochenSchicht;
+};
+
+/**
+ * Verteilt die Balken eines Tages auf Spuren: Dienste, die sich zeitlich nicht
+ * überschneiden (10:30–14:30 und 18:00–22:00), teilen sich eine Zeile. Das
+ * halbiert an vollen Tagen fast die Höhe. Mindestens 30 min Abstand, damit
+ * zwei Balken nicht wie einer aussehen.
+ */
+export function wochenSpuren(bars: WochenBalken[]): WochenBalken[][] {
+  const spuren: WochenBalken[][] = [];
+  for (const b of [...bars].sort((x, y) => x.start - y.start || x.end - y.end)) {
+    const frei = spuren.find((spur) => spur[spur.length - 1].end + 30 <= b.start);
+    if (frei) frei.push(b);
+    else spuren.push([b]);
+  }
+  return spuren;
+}
+
+/** Gemeinsamer Zeitbereich der Woche in ganzen Stunden (Minuten). */
+export function wochenSpanne(tage: WochenTag[]): { from: number; to: number } {
+  const bars = tage.flatMap((t) => t.bars);
+  if (bars.length === 0) return { from: 10 * 60, to: 22 * 60 };
+  return {
+    from: Math.floor(Math.min(...bars.map((b) => b.start)) / 60) * 60,
+    to: Math.ceil(Math.max(...bars.map((b) => b.end)) / 60) * 60,
+  };
+}
+
+/** Schichtart eines Dienstes; CUSTOM wird nach der Anfangszeit eingeordnet. */
+function wochenSchichtOf(shift: Shift): WochenSchicht {
+  if (shift.shiftType === "EARLY" || shift.shiftType === "MID" || shift.shiftType === "LATE") return shift.shiftType;
+  return shift.startMinutes < 11 * 60 ? "EARLY" : shift.startMinutes < 14 * 60 ? "MID" : "LATE";
+}
+
+/** Daten des Wochenplans – gemeinsam für PDF und Druckansicht. */
+export function wochenplanFor(schedule: Schedule, dates: string[]): WochenTag[] {
+  // Gleiche Namen (zwei Personen, die gleich heissen) bekommen eine Nummer –
+  // sonst stünde derselbe Name zweimal in einer Zelle und sähe wie ein Fehler aus.
+  const seen = new Map<string, number>();
+  const names = new Map(
+    schedule.employees.map((e) => {
+      const n = (seen.get(e.name) ?? 0) + 1;
+      seen.set(e.name, n);
+      return [e.id, n > 1 ? `${e.name} (${n})` : e.name] as const;
+    }),
+  );
+  const holidays = nrwHolidayNames(schedule.year);
+  const closedByDate = new Map(schedule.dateOverrides.filter((o) => o.closed).map((o) => [o.date, o] as const));
+  return dates.map((date) => {
+    const onDay = schedule.shifts
+      .filter((s) => s.date === date && names.has(s.employeeId))
+      .sort((a, b) => a.startMinutes - b.startMinutes || names.get(a.employeeId)!.localeCompare(names.get(b.employeeId)!));
+    const cells: Record<WochenSchicht, WochenGruppe[]> = { EARLY: [], MID: [], LATE: [] };
+    for (const s of onDay) {
+      const time = `${minutesToTime(s.startMinutes)}–${minutesToTime(s.endMinutes)}`;
+      const list = cells[wochenSchichtOf(s)];
+      const gruppe = list.find((g) => g.time === time);
+      if (gruppe) gruppe.names.push(names.get(s.employeeId)!);
+      else list.push({ time, names: [names.get(s.employeeId)!] });
+    }
+    const closed = closedByDate.get(date);
+    const holiday = holidays.get(date);
+    const d = parseIsoDate(date);
+    return {
+      date,
+      head: `${WEEKDAY_LABELS_DE[weekdayKeyOf(d)]} ${format(d, "dd.MM.")}`,
+      note: closed ? closed.note || "geschlossen" : holiday ?? "",
+      closed: Boolean(closed) && onDay.length === 0,
+      cells,
+      people: new Set(onDay.map((s) => s.employeeId)).size,
+      bars: onDay.map((s) => ({
+        name: names.get(s.employeeId)!,
+        start: s.startMinutes,
+        end: s.endMinutes,
+        pause: s.pauseMinutes,
+        schicht: wochenSchichtOf(s),
+      })),
+    };
+  });
+}
+
+/** Farbe je Schicht (Balken) – hell genug, dass schwarzer Text lesbar bleibt. */
+export const WOCHEN_FARBEN: Record<WochenSchicht, { fill: [number, number, number]; edge: [number, number, number] }> = {
+  EARLY: { fill: [254, 243, 199], edge: [217, 119, 6] }, // amber
+  MID: { fill: [224, 242, 254], edge: [2, 132, 199] }, // sky
+  LATE: { fill: [224, 231, 255], edge: [79, 70, 229] }, // indigo
+};
+
+/**
+ * Wochen-Dienstplan als PDF: A4 hoch, ZEITLEISTE (hochkant passen doppelt so
+ * viele Zeilen auf die Seite – in Natsu überlappen fast alle Dienste). Je Tag ein Block, je Dienst
+ * ein Balken von Beginn bis Ende, Name und Uhrzeit im Balken. Die Achse
+ * (Stunden) steht oben auf jeder Seite; passt ein Tag nicht mehr auf die
+ * Seite, beginnt er auf der nächsten – ein Tag wird nie geteilt.
+ */
+export function buildWochenplanPdf(schedule: Schedule, dates: string[], periodLabel: string): jsPDF {
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const tage = wochenplanFor(schedule, dates);
+  const { from, to } = wochenSpanne(tage);
+
+  const left = MARGIN;
+  const right = pageW - MARGIN;
+  const dayW = 28;
+  const axisL = left + dayW;
+  const axisR = right;
+  const xOf = (minute: number) => axisL + ((minute - from) / (to - from)) * (axisR - axisL);
+  const BAR = 4; // Balkenhöhe
+  const GAP = 0.6;
+  const DAY_PAD = 2.2;
+  const bottomLimit = pageH - MARGIN - 4;
+
+  /** Kopf + Stundenachse; gibt das Y unter der Achse zurück. */
+  const pageTop = (first: boolean): number => {
+    const y0 = drawHeader(doc, "Dienstplan", schedule, first ? periodLabel : `${periodLabel} (Forts.)`);
+    // Legende rechts oben unter dem Kopf
+    let lx = right;
+    for (const s of [...WOCHEN_SCHICHTEN].reverse()) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      const w = doc.getTextWidth(T(s.label));
+      lx -= w;
+      doc.setTextColor(...LINE);
+      doc.text(T(s.label), lx, y0 + 1);
+      lx -= 4.2;
+      doc.setFillColor(...WOCHEN_FARBEN[s.key].fill);
+      doc.setDrawColor(...WOCHEN_FARBEN[s.key].edge);
+      doc.setLineWidth(0.3);
+      doc.rect(lx, y0 - 1.6, 3.2, 2.4, "FD");
+      lx -= 4;
+    }
+    const y = y0 + 6;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...MUTED);
+    for (let m = from; m <= to; m += 60) {
+      doc.text(minutesToTime(m), xOf(m), y, { align: m === to ? "right" : m === from ? "left" : "center" });
+    }
+    doc.setDrawColor(...INK);
+    doc.setLineWidth(0.4);
+    doc.line(left, y + 1.5, right, y + 1.5);
+    return y + 1.5;
+  };
+
+  /** Senkrechte Stundenlinien im Bereich y0..y1 (hinter den Balken). */
+  const hourLines = (y0: number, y1: number) => {
+    doc.setDrawColor(...DIVIDER);
+    doc.setLineWidth(0.15);
+    for (let m = from; m <= to; m += 60) doc.line(xOf(m), y0, xOf(m), y1);
+  };
+
+  let y = pageTop(true);
+  tage.forEach((t) => {
+    const spuren = wochenSpuren(t.bars);
+    const rows = Math.max(1, spuren.length);
+    const h = DAY_PAD * 2 + rows * BAR + (rows - 1) * GAP;
+    if (y + h > bottomLimit) {
+      doc.addPage();
+      y = pageTop(false);
+    }
+    if (t.closed) {
+      doc.setFillColor(...SHADE_FILL);
+      doc.rect(left, y, right - left, h, "F");
+    }
+    hourLines(y, y + h);
+
+    // Tag links
+    const [wd, dm] = t.head.split(" ");
+    doc.setTextColor(...INK);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(T(wd), left + 1, y + DAY_PAD + 3.4);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...MUTED);
+    doc.text(`${T(dm)}  ·  ${t.people} Pers.`, left + 1, y + DAY_PAD + 7);
+    if (t.note) doc.text(T(t.note), left + 1, y + DAY_PAD + 10.2, { maxWidth: dayW - 2 });
+
+    if (t.bars.length === 0) {
+      doc.setTextColor(...MUTED);
+      doc.setFontSize(8);
+      doc.text(t.closed ? "geschlossen" : "kein Dienst", axisL + 2, y + DAY_PAD + 3.4);
+    }
+    spuren.forEach((spur, k) => spur.forEach((b) => {
+      const by = y + DAY_PAD + k * (BAR + GAP);
+      const x0 = xOf(b.start);
+      const x1 = xOf(b.end);
+      const farbe = WOCHEN_FARBEN[b.schicht];
+      doc.setFillColor(...farbe.fill);
+      doc.rect(x0, by, x1 - x0, BAR, "F");
+      doc.setFillColor(...farbe.edge);
+      doc.rect(x0, by, 0.9, BAR, "F");
+      const zeit = `${minutesToTime(b.start)}–${minutesToTime(b.end)}${b.pause ? `  P${b.pause}` : ""}`;
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...INK);
+      const nameW = doc.getTextWidth(T(b.name));
+      doc.setFont("helvetica", "normal");
+      const zeitW = doc.getTextWidth(T(zeit));
+      const innen = x1 - x0 - 3;
+      if (nameW + zeitW + 3 <= innen) {
+        doc.setFont("helvetica", "bold");
+        doc.text(T(b.name), x0 + 2, by + BAR * 0.72);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...LINE);
+        doc.text(T(zeit), x1 - 1.2, by + BAR * 0.72, { align: "right" });
+      } else {
+        // Kurzer Balken: Name im Balken (gekürzt), Uhrzeit rechts daneben.
+        doc.setFont("helvetica", "bold");
+        doc.text(doc.splitTextToSize(T(b.name), Math.max(4, innen))[0] as string, x0 + 2, by + BAR * 0.72);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...LINE);
+        const aussen = x1 + 1.2 + zeitW <= axisR;
+        doc.text(T(zeit), aussen ? x1 + 1.2 : x0 - 1.2, by + BAR * 0.72, { align: aussen ? "left" : "right" });
+      }
+    }));
+
+    y += h;
+    doc.setDrawColor(...GRID);
+    doc.setLineWidth(0.3);
+    doc.line(left, y, right, y);
+  });
+
+  return doc;
+}
+
 // ── Datei ausliefern ─────────────────────────────────────────────────────────
 
 /**
