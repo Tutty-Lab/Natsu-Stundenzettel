@@ -93,3 +93,21 @@ body {
      stattdessen als Innenabstand auf der gedruckten Seite. */
   .stundenzettel-page { padding: 14mm !important; }
 }
+
+/* Lịch tuần: mỗi tuần một trang. Bảng in khổ ngang (Chrome, Safari 18+). */
+@page raster {
+  size: A4 landscape;
+  margin: 0;
+}
+@media print {
+  .wochenraster-page,
+  .wochenplan-page {
+    page-break-after: always;
+    padding: 10mm !important;
+  }
+  .wochenraster-page { page: raster; }
+  .wochenraster-page:last-child,
+  .wochenplan-page:last-child {
+    page-break-after: auto;
+  }
+}

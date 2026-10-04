@@ -659,8 +659,19 @@ export const WOCHEN_FARBEN: Record<WochenSchicht, { fill: [number, number, numbe
  * (Stunden) steht oben auf jeder Seite; passt ein Tag nicht mehr auf die
  * Seite, beginnt er auf der nächsten – ein Tag wird nie geteilt.
  */
-export function buildWochenplanPdf(schedule: Schedule, dates: string[], periodLabel: string): jsPDF {
+export function buildWochenplanPdf(schedule: Schedule, weeks: WocheZumDruck[]): jsPDF {
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
+  weeks.forEach((w, i) => {
+    if (i > 0) doc.addPage();
+    drawWochenplan(doc, schedule, w.dates, w.label);
+  });
+  return doc;
+}
+
+/** Eine Woche zum Drucken: Tage (nur im Monat) und Titel oben rechts. */
+export type WocheZumDruck = { dates: string[]; label: string };
+
+function drawWochenplan(doc: jsPDF, schedule: Schedule, dates: string[], periodLabel: string): void {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const tage = wochenplanFor(schedule, dates);
@@ -787,8 +798,221 @@ export function buildWochenplanPdf(schedule: Schedule, dates: string[], periodLa
     doc.setLineWidth(0.3);
     doc.line(left, y, right, y);
   });
+}
 
+// ── Wochen-Dienstplan als TABELLE (Person × Tag) ────────────────────────────
+// Die klassische Form zum Aushängen: je Person eine Zeile, je Tag eine Spalte,
+// in der Zelle die Uhrzeit(en). Rechts die bezahlten Stunden der Woche.
+
+export type RasterZeile = {
+  name: string;
+  typ: string;
+  /** Je Tag die Dienste als „10:30–17:30" (geteilter Tag = zwei Einträge). */
+  cells: string[][];
+  /** Bezahlte Minuten in dieser Woche. */
+  paidMinutes: number;
+};
+
+export type WochenRaster = {
+  /** Kopf je Tag: „Mo" und „05.10.". */
+  days: Array<{ date: string; wd: string; dm: string; note: string }>;
+  rows: RasterZeile[];
+  /** Personen je Tag. */
+  people: number[];
+};
+
+const TYP_KURZ: Record<Employee["employmentType"], string> = {
+  VOLLZEIT: "VZ",
+  TEILZEIT: "TZ",
+  AZUBI: "Azubi",
+};
+const TYP_ORDER: Employee["employmentType"][] = ["VOLLZEIT", "TEILZEIT", "AZUBI"];
+
+/** Daten der Wochentabelle – gemeinsam für PDF und Druckansicht. */
+export function wochenRasterFor(schedule: Schedule, dates: string[]): WochenRaster {
+  const holidays = nrwHolidayNames(schedule.year);
+  const closedByDate = new Map(schedule.dateOverrides.filter((o) => o.closed).map((o) => [o.date, o] as const));
+  const inWeek = new Set(dates);
+  const shifts = schedule.shifts.filter((s) => inWeek.has(s.date));
+  const first = dates[0] ?? "";
+  const last = dates[dates.length - 1] ?? "";
+
+  const days = dates.map((date) => {
+    const d = parseIsoDate(date);
+    const closed = closedByDate.get(date);
+    return {
+      date,
+      wd: WEEKDAY_LABELS_DE[weekdayKeyOf(d)].slice(0, 2),
+      dm: format(d, "dd.MM."),
+      note: closed ? closed.note || "geschlossen" : holidays.get(date) ?? "",
+    };
+  });
+
+  // Wer in dieser Woche beschäftigt ist oder Dienste hat, steht in der Tabelle.
+  const employees = schedule.employees
+    .filter(
+      (e) =>
+        shifts.some((s) => s.employeeId === e.id) ||
+        ((!e.startDate || e.startDate <= last) && (!e.endDate || e.endDate >= first)),
+    )
+    .sort(
+      (a, b) =>
+        TYP_ORDER.indexOf(a.employmentType) - TYP_ORDER.indexOf(b.employmentType) ||
+        a.name.localeCompare(b.name),
+    );
+
+  const rows = employees.map((e) => {
+    const own = shifts.filter((s) => s.employeeId === e.id);
+    return {
+      name: e.name,
+      typ: TYP_KURZ[e.employmentType],
+      cells: dates.map((date) =>
+        own
+          .filter((s) => s.date === date)
+          .sort((a, b) => a.startMinutes - b.startMinutes)
+          .map((s) => `${minutesToTime(s.startMinutes)}–${minutesToTime(s.endMinutes)}`),
+      ),
+      paidMinutes: own.reduce((sum, s) => sum + s.paidMinutes, 0),
+    };
+  });
+
+  const people = dates.map((date) => new Set(shifts.filter((s) => s.date === date).map((s) => s.employeeId)).size);
+  return { days, rows, people };
+}
+
+/** Wochentabelle(n) als PDF: A4 quer, je Woche eine Seite (bei Bedarf mehr). */
+export function buildWochenRasterPdf(schedule: Schedule, weeks: WocheZumDruck[]): jsPDF {
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape", compress: true });
+  weeks.forEach((w, i) => {
+    if (i > 0) doc.addPage();
+    drawWochenRaster(doc, schedule, w.dates, w.label);
+  });
   return doc;
+}
+
+function drawWochenRaster(doc: jsPDF, schedule: Schedule, dates: string[], periodLabel: string): void {
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const raster = wochenRasterFor(schedule, dates);
+  const left = MARGIN;
+  const right = pageW - MARGIN;
+  const nameW = 52;
+  const typW = 12;
+  const sumW = 18;
+  // Die Tabelle füllt immer die ganze Breite – auch kurze Wochen am Monatsrand.
+  const dayW = (right - left - nameW - typW - sumW) / Math.max(1, dates.length);
+  const tableR = right;
+  const xDay = (i: number) => left + nameW + typW + i * dayW;
+  const bottomLimit = pageH - MARGIN;
+
+  const head = (first: boolean): number => {
+    let y = drawHeader(doc, "Dienstplan", schedule, first ? periodLabel : `${periodLabel} (Forts.)`);
+    const h = raster.days.some((d) => d.note) ? 11 : 8;
+    doc.setFillColor(...HEAD_FILL);
+    doc.rect(left, y, tableR - left, h, "F");
+    doc.setTextColor(...INK);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text("Name", left + 1.5, y + 5);
+    doc.text("Art", left + nameW + 1.5, y + 5);
+    doc.text("Std.", tableR - 1.5, y + 5, { align: "right" });
+    raster.days.forEach((d, i) => {
+      const cx = xDay(i) + dayW / 2;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...INK);
+      doc.text(`${d.wd} ${d.dm}`, cx, y + 5, { align: "center" });
+      if (d.note) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.5);
+        doc.setTextColor(180, 83, 9); // amber-700
+        doc.text(doc.splitTextToSize(T(d.note), dayW - 2)[0] as string, cx, y + 8.8, { align: "center" });
+      }
+    });
+    y += h;
+    doc.setDrawColor(...INK);
+    doc.setLineWidth(0.4);
+    doc.line(left, y, tableR, y);
+    return y;
+  };
+
+  const vLines = (y0: number, y1: number) => {
+    doc.setDrawColor(...DIVIDER);
+    doc.setLineWidth(0.2);
+    for (let i = 0; i <= dates.length; i++) doc.line(xDay(i), y0, xDay(i), y1);
+    doc.line(left + nameW, y0, left + nameW, y1);
+  };
+
+  let y = head(true);
+  let pageTop = y;
+  // Eine Woche soll auf EINE Seite passen: Zeilen bei Bedarf enger setzen
+  // (bis 2,9 mm je Textzeile). Reicht das nicht, geht es auf Seite 2 weiter.
+  const totalLines = raster.rows.reduce((sum, r) => sum + Math.max(1, ...r.cells.map((c) => c.length)), 0);
+  const avail = bottomLimit - 8 - y;
+  let PAD = 2.4;
+  let LINE_H = 3.6;
+  if (raster.rows.length * PAD + totalLines * LINE_H > avail) {
+    PAD = 1.4;
+    LINE_H = Math.min(3.6, Math.max(2.9, (avail - raster.rows.length * PAD) / Math.max(1, totalLines)));
+  }
+  const FONT = LINE_H < 3.3 ? 7.5 : 8.5;
+  const frame = (y1: number) => {
+    vLines(pageTop, y1);
+    doc.setDrawColor(...INK);
+    doc.setLineWidth(0.4);
+    doc.rect(left, pageTop, tableR - left, y1 - pageTop);
+  };
+  raster.rows.forEach((r, idx) => {
+    const lines = Math.max(1, ...r.cells.map((c) => c.length));
+    const h = PAD + lines * LINE_H;
+    if (y + h > bottomLimit - 8) {
+      frame(y);
+      doc.addPage();
+      y = head(false);
+      pageTop = y;
+    }
+    if (idx % 2 === 1) {
+      doc.setFillColor(...SHADE_FILL);
+      doc.rect(left, y, tableR - left, h, "F");
+    }
+    const baseY = y + PAD / 2 + LINE_H * 0.8;
+    doc.setTextColor(...INK);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(FONT);
+    doc.text(doc.splitTextToSize(T(r.name), nameW - 3)[0] as string, left + 1.5, baseY);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...LINE);
+    doc.text(r.typ, left + nameW + 1.5, baseY);
+    r.cells.forEach((cell, i) => {
+      const cx = xDay(i) + dayW / 2;
+      if (cell.length === 0) {
+        doc.setTextColor(...DIVIDER);
+        doc.text("-", cx, baseY, { align: "center" });
+        return;
+      }
+      doc.setTextColor(...INK);
+      cell.forEach((t, k) => doc.text(T(t), cx, baseY + k * LINE_H, { align: "center" }));
+    });
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...INK);
+    doc.text(minutesToDecimalHours(r.paidMinutes), tableR - 1.5, baseY, { align: "right" });
+    y += h;
+    // Trennlinie, dicker beim Wechsel der Beschäftigungsart.
+    const next = raster.rows[idx + 1];
+    doc.setDrawColor(...(next && next.typ !== r.typ ? LINE : DIVIDER));
+    doc.setLineWidth(next && next.typ !== r.typ ? 0.35 : 0.15);
+    doc.line(left, y, tableR, y);
+  });
+
+  // Fußzeile: Personen je Tag.
+  doc.setFillColor(...HEAD_FILL);
+  doc.rect(left, y, tableR - left, 6, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(...LINE);
+  doc.text("Personen", left + 1.5, y + 4.2);
+  raster.people.forEach((n, i) => doc.text(String(n), xDay(i) + dayW / 2, y + 4.2, { align: "center" }));
+  frame(y + 6);
 }
 
 // ── Datei ausliefern ─────────────────────────────────────────────────────────

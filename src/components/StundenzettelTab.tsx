@@ -2,80 +2,103 @@ import { useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
-import { buildStundenzettelPdf, buildWochenplanPdf, savePdf, safeFileName } from "../lib/pdf";
+import {
+  buildStundenzettelPdf,
+  buildWochenplanPdf,
+  buildWochenRasterPdf,
+  savePdf,
+  safeFileName,
+  type WocheZumDruck,
+} from "../lib/pdf";
 import { StundenzettelPage } from "./StundenzettelPage";
 import { WochenplanPage } from "./WochenplanPage";
+import { WochenRasterPage } from "./WochenRasterPage";
 import { weeksOfMonth } from "../lib/weeks";
+
+/** Was gedruckt wird: Wochen-Dienstplan (ganzer Laden) oder Stundenzettel je Person. */
+type Mode = "week" | "timesheet";
+/** Form des Wochenplans: Tabelle Person × Tag oder Zeitleiste je Tag. */
+type Layout = "table" | "timeline";
+
+/** Was gerade im (unsichtbaren) Druckbereich steht. */
+type PrintJob =
+  | { kind: "week"; layout: Layout; weeks: WocheZumDruck[] }
+  | { kind: "timesheet"; employees: Employee[]; period?: WocheZumDruck };
+
+const ALL = "all";
 
 export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const { schedule } = store;
-  // who: "all" = ganzer Laden, sonst eine employeeId.
-  const [who, setWho] = useState<string>("all");
-  // what: "stundenzettel" (Stundenzettel, ganzer Monat) | "wp-<weekStart>"
-  // (Dienstplan der Woche – nach Tag und Schicht, nicht je Person).
-  const [what, setWhat] = useState<string>("stundenzettel");
-  const weeks = useMemo(
-    () => weeksOfMonth(schedule.year, schedule.month),
-    [schedule.year, schedule.month],
-  );
-  const [printList, setPrintList] = useState<Employee[] | null>(null);
+  const [mode, setMode] = useState<Mode>("week");
+  const [layout, setLayout] = useState<Layout>("table");
+  // Wochenplan: ALL = jede Woche des Monats (je Woche eine Seite), sonst weekStart.
+  const [weekKey, setWeekKey] = useState<string>(ALL);
+  // Stundenzettel: Person (ALL = alle) und Zeitraum (ALL = ganzer Monat, sonst weekStart).
+  const [who, setWho] = useState<string>(ALL);
+  const [period, setPeriod] = useState<string>(ALL);
+  const [job, setJob] = useState<PrintJob | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<string>("");
-  // Zeitraum für den Stundenzettel: gesetzt => Wochen-Zettel, leer => Monat.
-  const [szDates, setSzDates] = useState<string[] | undefined>(undefined);
-  const [szLabel, setSzLabel] = useState<string | undefined>(undefined);
-  // Wochenplan im Druckbereich (statt Stundenzettel je Person).
-  const [printWeek, setPrintWeek] = useState<{ dates: string[]; label: string } | null>(null);
 
+  const weeks = useMemo(
+    () =>
+      weeksOfMonth(schedule.year, schedule.month).map((w, i) => ({
+        ...w,
+        number: i + 1,
+        title: `Woche ${w.label}${schedule.year}`,
+      })),
+    [schedule.year, schedule.month],
+  );
   const monthTag = `${schedule.year}-${String(schedule.month).padStart(2, "0")}`;
 
-  // "Tất cả" => alle; sonst genau die gewählte Person.
-  const chosenEmployees =
-    who === "all" ? schedule.employees : schedule.employees.filter((e) => e.id === who);
-  const previewEmployee =
-    who === "all" ? schedule.employees[0] ?? null : chosenEmployees[0] ?? null;
-  const whoTag = who === "all" ? "tat_ca" : safeFileName(previewEmployee?.name ?? who);
-
-  // Woche: nur die Tage dieser Woche, mit Wochentitel oben rechts.
-  function weekFor(weekStart: string): { dates: string[]; label: string } | null {
-    const w = weeks.find((x) => x.weekStart === weekStart);
-    if (!w) return null;
-    return { dates: w.dates, label: `Woche ${w.label}${schedule.year}` };
-  }
+  const chosenWeeks: WocheZumDruck[] = (weekKey === ALL ? weeks : weeks.filter((w) => w.weekStart === weekKey)).map(
+    (w) => ({ dates: w.dates, label: w.title }),
+  );
+  const chosenEmployees = who === ALL ? schedule.employees : schedule.employees.filter((e) => e.id === who);
+  const periodWeek = weeks.find((w) => w.weekStart === period);
+  const chosenPeriod: WocheZumDruck | undefined = periodWeek
+    ? { dates: periodWeek.dates, label: periodWeek.title }
+    : undefined;
+  const previewEmployee = chosenEmployees[0] ?? null;
 
   // Vùng in phải được render TRƯỚC khi gọi print, và print phải nằm trong cùng
   // thao tác chạm (mobile chặn print ngoài gesture). flushSync render đồng bộ.
-  function doPrint(list: Employee[], sz?: { dates?: string[]; label?: string }) {
-    if (list.length === 0) return;
-    flushSync(() => {
-      setPrintWeek(null);
-      setSzDates(sz?.dates);
-      setSzLabel(sz?.label);
-      setPrintList(list);
-    });
+  function onPrint() {
+    const next: PrintJob =
+      mode === "week"
+        ? { kind: "week", layout, weeks: chosenWeeks }
+        : { kind: "timesheet", employees: chosenEmployees, period: chosenPeriod };
+    flushSync(() => setJob(next));
     window.print();
   }
 
-  async function doPdf(
-    list: Employee[],
-    filename: string,
-    sz?: { dates?: string[]; label?: string },
-  ) {
-    if (list.length === 0 || pdfBusy) return;
+  async function onPdf() {
+    if (pdfBusy) return;
     setPdfBusy(true);
-    setPdfProgress(list.length > 1 ? `1/${list.length}` : "");
+    setPdfProgress("");
     // Kurzer Yield, damit „Đang tạo PDF…" zuerst sichtbar wird.
     await new Promise((resolve) => setTimeout(resolve, 0));
     try {
-      const doc = await buildStundenzettelPdf(
-        schedule,
-        list,
-        { dates: sz?.dates, periodLabel: sz?.label },
-        (current, total) => {
-          if (total > 1) setPdfProgress(`${current}/${total}`);
-        },
-      );
-      savePdf(doc, filename);
+      if (mode === "week") {
+        const doc =
+          layout === "table"
+            ? buildWochenRasterPdf(schedule, chosenWeeks)
+            : buildWochenplanPdf(schedule, chosenWeeks);
+        const weekTag = weekKey === ALL ? "ca_thang" : `tuan_${weekKey}`;
+        savePdf(doc, `Dienstplan_${monthTag}_${weekTag}.pdf`);
+      } else {
+        const whoTag = who === ALL ? "tat_ca" : safeFileName(previewEmployee?.name ?? who);
+        const periodTag = periodWeek ? `_tuan_${periodWeek.weekStart}` : "";
+        const doc = await buildStundenzettelPdf(
+          schedule,
+          chosenEmployees,
+          { dates: chosenPeriod?.dates, periodLabel: chosenPeriod?.label },
+          (current, total) => {
+            if (total > 1) setPdfProgress(`${current}/${total}`);
+          },
+        );
+        savePdf(doc, `Stundenzettel_${whoTag}_${monthTag}${periodTag}.pdf`);
+      }
     } catch (error) {
       alert(`Không tạo được PDF: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -84,83 +107,98 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     }
   }
 
-  const week = what.startsWith("wp-") ? weekFor(what.slice(3)) : null;
-
-  function onPrint() {
-    if (week) {
-      flushSync(() => {
-        setPrintList(null);
-        setPrintWeek(week);
-      });
-      window.print();
-      return;
-    }
-    doPrint(chosenEmployees);
-  }
-
-  function onPdf() {
-    if (week) {
-      try {
-        savePdf(buildWochenplanPdf(schedule, week.dates, week.label), `Dienstplan_${monthTag}_tuan_${what.slice(3)}.pdf`);
-      } catch (error) {
-        alert(`Không tạo được PDF: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      return;
-    }
-    void doPdf(chosenEmployees, `Stundenzettel_${whoTag}_${monthTag}.pdf`);
-  }
-
   if (schedule.employees.length === 0) {
     return (
       <div className="no-print rounded bg-white border border-slate-200 p-6 text-center text-slate-400">
-        Vui lòng thêm nhân viên và tạo lịch làm việc trước.
+        Thêm nhân viên và tạo lịch làm việc trước.
       </div>
     );
   }
 
+  const selectClass = "rounded border border-slate-300 px-2 py-2 text-sm";
+  const previewWeek = chosenWeeks[0];
+
   return (
     <>
       <div className="no-print">
-        {/* ---- In & Xuất ---- */}
         <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4">
-          <div className="text-sm font-medium text-slate-700 mb-2">In &amp; Xuất file</div>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">Cho ai</span>
-              <select
-                className="rounded border border-slate-300 px-2 py-2 text-sm min-w-[10rem]"
-                value={week ? "all" : who}
-                disabled={Boolean(week)}
-                title={week ? "Lịch tuần luôn in cho cả quán" : undefined}
-                onChange={(e) => setWho(e.target.value)}
-              >
-                <option value="all">Tất cả (cả quán)</option>
-                {schedule.employees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div className="text-sm font-medium text-slate-700">In &amp; Xuất file</div>
+            <div className="inline-flex rounded border border-slate-300 p-0.5" role="tablist">
+              {(
+                [
+                  ["week", "Lịch làm việc theo tuần"],
+                  ["timesheet", "Bảng chấm công"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === key}
+                  onClick={() => setMode(key)}
+                  className={`rounded px-3 py-1.5 text-sm ${
+                    mode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">Nội dung</span>
-              <select
-                className="rounded border border-slate-300 px-2 py-2 text-sm min-w-[14rem]"
-                value={what}
-                onChange={(e) => setWhat(e.target.value)}
-              >
-                <option value="stundenzettel">Bảng chấm công (Stundenzettel) — cả tháng</option>
-                {weeks.map((w) => (
-                  <option key={`wp-${w.weekStart}`} value={`wp-${w.weekStart}`}>
-                    Lịch làm việc (Dienstplan) — tuần {w.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div className="flex flex-wrap items-end gap-3">
+            {mode === "week" ? (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-slate-500">Tuần</span>
+                  <select className={`${selectClass} min-w-[12rem]`} value={weekKey} onChange={(e) => setWeekKey(e.target.value)}>
+                    <option value={ALL}>Cả tháng (mỗi tuần một trang)</option>
+                    {weeks.map((w) => (
+                      <option key={w.weekStart} value={w.weekStart}>
+                        Tuần {w.number}: {w.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-slate-500">Dạng</span>
+                  <select className={selectClass} value={layout} onChange={(e) => setLayout(e.target.value as Layout)}>
+                    <option value="table">Bảng: nhân viên × ngày</option>
+                    <option value="timeline">Biểu đồ giờ theo ngày</option>
+                  </select>
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-slate-500">Nhân viên</span>
+                  <select className={`${selectClass} min-w-[10rem]`} value={who} onChange={(e) => setWho(e.target.value)}>
+                    <option value={ALL}>Tất cả (mỗi người một trang)</option>
+                    {schedule.employees.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-slate-500">Thời gian</span>
+                  <select className={`${selectClass} min-w-[10rem]`} value={period} onChange={(e) => setPeriod(e.target.value)}>
+                    <option value={ALL}>Cả tháng</option>
+                    {weeks.map((w) => (
+                      <option key={w.weekStart} value={w.weekStart}>
+                        Tuần {w.number}: {w.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 disabled={pdfBusy}
                 onClick={onPrint}
                 className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
@@ -168,8 +206,9 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                 In
               </button>
               <button
+                type="button"
                 disabled={pdfBusy}
-                onClick={onPdf}
+                onClick={() => void onPdf()}
                 className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
               >
                 Xuất PDF
@@ -181,53 +220,70 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
               )}
             </div>
           </div>
+
           <p className="mt-2 text-xs text-slate-500">
-            Tờ <span className="font-medium">Stundenaufzeichnung</span> theo mẫu tiếng Đức (dùng nộp
-            tại Đức) — một tờ mỗi người cho cả tháng. Chọn một <span className="font-medium">tuần</span> để in
-            lịch làm việc của tuần đó theo ngày và theo ca (một tờ cho cả quán).{" "}
-            <span className="font-medium">Xuất PDF</span> tải thẳng file .pdf về máy; trên điện thoại
-            mở bảng Chia sẻ. <span className="font-medium">In</span> mở hộp thoại in (chọn lề „Chuẩn",
-            tỉ lệ 100 %).
+            {mode === "week"
+              ? "Lịch tuần in cho cả quán. Dạng bảng in khổ ngang, mỗi tuần một trang."
+              : "Tờ Stundenaufzeichnung giữ tiếng Đức theo mẫu. Mỗi người một trang."}{" "}
+            Xuất PDF tải file về máy. In mở hộp thoại in: chọn lề „Chuẩn“ và tỉ lệ 100 %.
           </p>
         </div>
 
-        {week && (
-          <>
-            <div className="mb-1 text-xs text-slate-500">Xem trước: lịch làm việc tuần</div>
-            <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
-              <div className="min-w-[760px]">
-                <WochenplanPage schedule={schedule} dates={week.dates} periodLabel={week.label} />
-              </div>
+        <div className="mb-1 text-xs text-slate-500">
+          {mode === "week" ? (
+            <>
+              Xem trước: <b>{previewWeek?.label}</b>
+              {weekKey === ALL && weeks.length > 1 && ` (và ${weeks.length - 1} tuần nữa)`}
+            </>
+          ) : (
+            <>
+              Xem trước: <b>{previewEmployee?.name}</b>
+              {who === ALL && " (chọn một người để xem người khác)"}
+            </>
+          )}
+        </div>
+        <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
+          {mode === "week" && previewWeek && (
+            <div className="min-w-[860px]">
+              {layout === "table" ? (
+                <WochenRasterPage schedule={schedule} dates={previewWeek.dates} periodLabel={previewWeek.label} />
+              ) : (
+                <WochenplanPage schedule={schedule} dates={previewWeek.dates} periodLabel={previewWeek.label} />
+              )}
             </div>
-          </>
-        )}
-        {!week && previewEmployee && (
-          <>
-            <div className="mb-1 text-xs text-slate-500">
-              Xem trước: <b>{previewEmployee.name}</b>
-              {who === "all" && " (chọn một người ở ô „Cho ai“ để xem người khác)"}
-            </div>
-            <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
-              <StundenzettelPage schedule={schedule} employee={previewEmployee} />
-            </div>
-          </>
-        )}
+          )}
+          {mode === "timesheet" && previewEmployee && (
+            <StundenzettelPage
+              schedule={schedule}
+              employee={previewEmployee}
+              dates={chosenPeriod?.dates}
+              periodLabel={chosenPeriod?.label}
+            />
+          )}
+        </div>
       </div>
 
-      {/* Vùng in ẩn: mỗi nhân viên một trang */}
+      {/* Vùng in ẩn: mỗi tuần / mỗi nhân viên một trang */}
       <div className="print-area">
-        {printWeek && <WochenplanPage schedule={schedule} dates={printWeek.dates} periodLabel={printWeek.label} />}
-        {(printList ?? []).map((emp) => (
-          <StundenzettelPage
-            key={emp.id}
-            schedule={schedule}
-            employee={emp}
-            dates={szDates}
-            periodLabel={szLabel}
-          />
-        ))}
+        {job?.kind === "week" &&
+          job.weeks.map((w) =>
+            job.layout === "table" ? (
+              <WochenRasterPage key={w.label} schedule={schedule} dates={w.dates} periodLabel={w.label} />
+            ) : (
+              <WochenplanPage key={w.label} schedule={schedule} dates={w.dates} periodLabel={w.label} />
+            ),
+          )}
+        {job?.kind === "timesheet" &&
+          job.employees.map((emp) => (
+            <StundenzettelPage
+              key={emp.id}
+              schedule={schedule}
+              employee={emp}
+              dates={job.period?.dates}
+              periodLabel={job.period?.label}
+            />
+          ))}
       </div>
-
     </>
   );
 }

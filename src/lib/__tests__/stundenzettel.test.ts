@@ -129,10 +129,10 @@ describe("Natsu/Nava Azubi settings", () => {
 
     const html = renderToStaticMarkup(createElement(AzubiTab, { store }));
 
-    expect(html).toContain("Giờ làm mỗi tuần");
+    expect(html).toContain("Giờ mỗi tuần của Azubi Settings");
     expect(html).toContain('value="25"');
-    expect(html).toContain("Tối đa 24h/tuần");
-    expect(html).toContain("Đang vượt mức tối đa 24h/tuần");
+    expect(html).toContain("tối đa 24h mỗi tuần");
+    expect(html).toContain("Vượt mức tối đa 24h/tuần");
   });
 });
 
@@ -162,11 +162,14 @@ describe("Natsu/Nava timesheet actions", () => {
 
     const html = renderToStaticMarkup(createElement(StundenzettelTab, { store }));
 
-    // Seit der Umstellung auf die Auswahl „Cho ai/Nội dung" gibt es je einen
-    // Knopf; wer gemeint ist, steht im Auswahlfeld darüber.
+    // Zwei Arten: Wochen-Dienstplan (Standard: Tabelle Person × Tag) und
+    // Stundenzettel. Je ein Knopf In / Xuất PDF; die Auswahl steht darüber.
     expect(html).toContain("Xuất PDF");
     expect(html).toContain("In");
-    expect(html).toContain("Tất cả (cả quán)");
+    expect(html).toContain("Lịch làm việc theo tuần");
+    expect(html).toContain("Bảng chấm công");
+    expect(html).toContain("Cả tháng (mỗi tuần một trang)");
+    expect(html).toContain("Bảng: nhân viên × ngày");
     expect(html).not.toContain("CSV");
   });
 });
