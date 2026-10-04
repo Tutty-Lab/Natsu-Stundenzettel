@@ -112,11 +112,11 @@ body {
   }
 }
 
-/* Popup (Nhân viên, sửa ca): không cao hơn vùng nhìn thấy, nội dung cuộn bên trong.
+/* Popup (Nhân viên, sửa ca): tối đa 80 % màn hình và 36rem (576px), nội dung cuộn bên trong.
    dvh = chiều cao thật trên điện thoại (trừ thanh địa chỉ); vh là dự phòng cho trình duyệt cũ. */
 .popup-card {
-  max-height: calc(100vh - 2rem);
-  max-height: calc(100dvh - 2rem);
+  max-height: min(80vh, 36rem);
+  max-height: min(80dvh, 36rem);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
