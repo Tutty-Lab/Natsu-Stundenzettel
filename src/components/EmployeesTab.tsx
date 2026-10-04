@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import type { AzubiConfig, Employee, EmploymentType } from "../types";
+import type { AzubiConfig, Employee, EmploymentType, WeekPattern } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import {
   azubiMonthlyMinutes,
@@ -8,6 +8,7 @@ import {
   defaultAzubiConfig,
 } from "../lib/azubi";
 import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
+import { distributeLengths, isValidPattern } from "../lib/weekPattern";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -47,6 +48,13 @@ type Draft = {
   availableWeekdays: WeekdayKey[]; // [] = mọi ngày
   maxDays: string;
   azubi?: AzubiConfig;
+  /** „Mẫu tuần" */
+  patternOn: boolean;
+  pDays: string;
+  pMin: string;
+  pMax: string;
+  pWeekly: string;
+  pRest: WeekdayKey[]; // [] = tự động
 };
 
 function draftFrom(emp?: Employee): Draft {
@@ -57,7 +65,29 @@ function draftFrom(emp?: Employee): Draft {
     availableWeekdays: emp?.availableWeekdays ?? [],
     maxDays: emp?.maxDaysPerWeek ? String(emp.maxDaysPerWeek) : "",
     azubi: emp?.azubi,
+    patternOn: Boolean(emp?.weekPattern),
+    pDays: String(emp?.weekPattern?.days ?? 6),
+    pMin: String(emp?.weekPattern?.minHours ?? 6.5),
+    pMax: String(emp?.weekPattern?.maxHours ?? 7),
+    pWeekly: emp?.weekPattern ? (emp.weekPattern.weeklyHours !== undefined ? String(emp.weekPattern.weeklyHours) : "") : "40",
+    pRest: emp?.weekPattern?.restDays ?? [],
   };
+}
+
+/** Muster aus dem Formular; undefined, wenn aus oder unvollständig. */
+function patternFrom(d: Draft): WeekPattern | undefined {
+  if (!d.patternOn || d.employmentType === "AZUBI") return undefined;
+  const days = Math.round(Number(d.pDays));
+  const p: WeekPattern = {
+    days,
+    minHours: Number(d.pMin),
+    maxHours: Number(d.pMax),
+    weeklyHours: d.pWeekly.trim() === "" ? undefined : Number(d.pWeekly),
+    // Ruhetage nur übernehmen, wenn genau so viele gewählt sind, wie die
+    // Woche freie Tage hat; sonst automatisch.
+    restDays: d.pRest.length === 7 - days ? [...d.pRest] : undefined,
+  };
+  return isValidPattern(p) ? p : undefined;
 }
 
 function draftToEmployee(d: Draft): Omit<Employee, "id"> {
@@ -67,6 +97,7 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
   // Azubi: die Stunden kommen aus der Azubi-Konfiguration (Tab „Azubi"), nicht
   // aus dem Stundenfeld. Bestehende Konfiguration bleibt erhalten.
   const azubi = isAzubi ? d.azubi ?? defaultAzubiConfig() : undefined;
+  const weekPattern = patternFrom(d);
   return {
     name: d.name.trim() || "Nhân viên mới",
     employmentType: d.employmentType,
@@ -76,8 +107,45 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
       d.availableWeekdays.length === 0 || d.availableWeekdays.length === 7
         ? undefined
         : [...d.availableWeekdays],
-    maxDaysPerWeek: d.maxDays === "" || tage < 1 ? undefined : Math.min(7, Math.round(tage)),
+    // Mit Mẫu tuần bestimmt das Muster die Tage je Woche.
+    maxDaysPerWeek:
+      weekPattern || d.maxDays === "" || tage < 1 ? undefined : Math.min(7, Math.round(tage)),
+    weekPattern,
   };
+}
+
+const fmtH = (h: number) => String(h).replace(".", ",");
+
+/** „4 ca 6,5h + 2 ca 7h = 40h" für die Vorschau. */
+function patternPreview(d: Draft): { ok: boolean; text: string } {
+  const days = Math.round(Number(d.pDays));
+  const min = Number(d.pMin);
+  const max = Number(d.pMax);
+  if (!(days >= 1 && days <= 6)) return { ok: false, text: "Số ngày/tuần phải từ 1 đến 6." };
+  if (!(min > 0 && max >= min && max <= 8) || (min * 2) % 1 !== 0 || (max * 2) % 1 !== 0) {
+    return { ok: false, text: "Độ dài ca: từ ≤ đến, bước 0,5 giờ, tối đa 8 giờ." };
+  }
+  if (d.pRest.length > 0 && d.pRest.length !== 7 - days) {
+    return { ok: false, text: `Chọn đúng ${7 - days} ngày nghỉ, hoặc bỏ chọn hết để app tự chia.` };
+  }
+  if (d.pWeekly.trim() === "") {
+    return {
+      ok: true,
+      text: `Mỗi tuần ${days} ca, mỗi ca ${fmtH(min)}–${fmtH(max)}h; giờ tháng lấy theo ô định mức tháng.`,
+    };
+  }
+  const weekly = Number(d.pWeekly);
+  const laengen = distributeLengths(days, Math.round(weekly * 60), Math.round(min * 60), Math.round(max * 60));
+  if (!laengen) {
+    return {
+      ok: false,
+      text: `${fmtH(weekly)}h/tuần không chia được thành ${days} ca ${fmtH(min)}–${fmtH(max)}h (được ${fmtH(days * min)}–${fmtH(days * max)}h).`,
+    };
+  }
+  const gruppen = new Map<number, number>();
+  for (const l of laengen) gruppen.set(l / 60, (gruppen.get(l / 60) ?? 0) + 1);
+  const teile = [...gruppen].sort((a, b) => a[0] - b[0]).map(([h, n]) => `${n} ca ${fmtH(h)}h`);
+  return { ok: true, text: `Tuần đủ: ${teile.join(" + ")} = ${fmtH(weekly)}h` };
 }
 
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
@@ -191,7 +259,16 @@ function EmployeeSummaryRow({ emp }: { emp: Employee }) {
         {tage && tage.length > 0 && (
           <span className="text-slate-400">· {tage.map((k) => WEEKDAY_SHORT_VI[k]).join(" ")}</span>
         )}
-        {emp.maxDaysPerWeek ? (
+        {emp.weekPattern ? (
+          <span className="text-indigo-600">
+            · mẫu tuần {emp.weekPattern.days} ngày, ca {fmtH(emp.weekPattern.minHours)}–
+            {fmtH(emp.weekPattern.maxHours)}h
+            {emp.weekPattern.weeklyHours !== undefined && `, ${fmtH(emp.weekPattern.weeklyHours)}h/tuần`}
+            {emp.weekPattern.restDays?.length
+              ? `, nghỉ ${emp.weekPattern.restDays.map((k) => WEEKDAY_SHORT_VI[k]).join(" ")}`
+              : ""}
+          </span>
+        ) : emp.maxDaysPerWeek ? (
           <span className="text-slate-400">· {emp.maxDaysPerWeek} ngày/tuần</span>
         ) : null}
       </div>
@@ -327,20 +404,24 @@ function EmployeeSheet({
                 );
               })}
             </div>
-            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
-              Số ngày làm mỗi tuần
-              <input
-                type="number"
-                min={1}
-                max={7}
-                placeholder="—"
-                className={`${inputClass} w-16`}
-                value={d.maxDays}
-                onChange={(e) => set("maxDays", e.target.value)}
-              />
-              <span className="text-slate-400">bỏ trống = không giới hạn</span>
-            </label>
+            {!d.patternOn && (
+              <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                Số ngày làm mỗi tuần
+                <input
+                  type="number"
+                  min={1}
+                  max={7}
+                  placeholder="—"
+                  className={`${inputClass} w-16`}
+                  value={d.maxDays}
+                  onChange={(e) => set("maxDays", e.target.value)}
+                />
+                <span className="text-slate-400">bỏ trống = không giới hạn</span>
+              </label>
+            )}
           </div>
+
+          {!isAzubi && <PatternSection d={d} set={set} />}
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3">
@@ -392,6 +473,117 @@ function EmployeeSheet({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * „Mẫu tuần": feste Arbeitswoche (Tage je Woche, Schichtlänge von–bis,
+ * Wochenvertrag, feste Ruhetage). Wunsch von Natsu: Vollzeit 40 h auf sechs
+ * Tage, vier Tage 6,5 h und zwei Tage 7 h.
+ */
+function PatternSection({
+  d,
+  set,
+}: {
+  d: Draft;
+  set: <K extends keyof Draft>(k: K, v: Draft[K]) => void;
+}) {
+  const vorschau = patternPreview(d);
+  const ruheSoll = 7 - Math.round(Number(d.pDays) || 0);
+  const toggleRest = (key: WeekdayKey) =>
+    set("pRest", d.pRest.includes(key) ? d.pRest.filter((k) => k !== key) : [...d.pRest, key]);
+
+  return (
+    <div className="border-t border-slate-100 pt-3">
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input
+          type="checkbox"
+          checked={d.patternOn}
+          onChange={(e) => set("patternOn", e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300"
+        />
+        <span className="font-medium">Mẫu tuần cố định</span>
+        <span className="text-xs text-slate-400">số ngày + độ dài ca mỗi tuần</span>
+      </label>
+
+      {d.patternOn && (
+        <div className="mt-2 space-y-2 rounded-lg bg-slate-50 p-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <label className="block">
+              <span className="text-[11px] text-slate-600">Ngày/tuần</span>
+              <input
+                type="number" min={1} max={6} step={1} inputMode="numeric"
+                className={`${inputClass} mt-0.5 w-full`}
+                value={d.pDays}
+                onChange={(e) => set("pDays", e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] text-slate-600">Ca từ (giờ)</span>
+              <input
+                type="number" min={3} max={8} step={0.5} inputMode="decimal"
+                className={`${inputClass} mt-0.5 w-full`}
+                value={d.pMin}
+                onChange={(e) => set("pMin", e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] text-slate-600">đến (giờ)</span>
+              <input
+                type="number" min={3} max={8} step={0.5} inputMode="decimal"
+                className={`${inputClass} mt-0.5 w-full`}
+                value={d.pMax}
+                onChange={(e) => set("pMax", e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] text-slate-600">Giờ/tuần (HĐ)</span>
+              <input
+                type="number" min={1} max={48} step={0.5} inputMode="decimal" placeholder="—"
+                className={`${inputClass} mt-0.5 w-full`}
+                value={d.pWeekly}
+                onChange={(e) => set("pWeekly", e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div>
+            <div className="text-[11px] text-slate-600 mb-1">
+              Ngày nghỉ cố định
+              <span className="text-slate-400">
+                {" "}
+                — {d.pRest.length === 0 ? "để trống = app tự chia so le vào ngày vắng" : `chọn đúng ${ruheSoll} ngày`}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {WEEKDAY_ORDER.map((key) => {
+                const an = d.pRest.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => toggleRest(key)}
+                    className={`rounded px-2 py-1 text-xs border transition-colors ${
+                      an ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-500 border-slate-200"
+                    }`}
+                  >
+                    {WEEKDAY_SHORT_VI[key]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className={`text-xs ${vorschau.ok ? "text-indigo-700" : "text-rose-600"}`}>{vorschau.text}</div>
+          {d.pWeekly.trim() !== "" && (
+            <div className="text-[11px] text-slate-500">
+              Có giờ/tuần thì giờ của tháng tính theo tuần: tuần đủ đúng {fmtH(Number(d.pWeekly) || 0)}h, tuần
+              đầu/cuối tháng tính theo số ngày làm. Ô "Giờ định mức / tháng" ở trên không dùng nữa.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

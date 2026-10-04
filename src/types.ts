@@ -49,6 +49,27 @@ export type Employee = {
    * kombiniert (das kleinere gewinnt). Fehlt = nur die Sechs-Tage-Regel.
    */
   maxDaysPerWeek?: number;
+  /**
+   * „Mẫu tuần": feste Arbeitswoche (Tage je Woche + Schichtlänge von–bis),
+   * optional mit Wochenvertrag. Siehe lib/weekPattern.ts. Nicht für Azubi.
+   */
+  weekPattern?: WeekPattern;
+};
+
+export type WeekPattern = {
+  /** Arbeitstage in einer vollen Woche (1..6). */
+  days: number;
+  /** Kürzeste Schicht in Stunden (Schritt 0,5). */
+  minHours: number;
+  /** Längste Schicht in Stunden (Schritt 0,5, höchstens 8). */
+  maxHours: number;
+  /** Wochenvertrag in Stunden; gesetzt => Monats-Soll folgt den Wochen. */
+  weeklyHours?: number;
+  /**
+   * Feste Ruhetage (genau 7 − days Stück). Fehlt => automatisch, reihum auf
+   * die schwächsten Wochentage verteilt.
+   */
+  restDays?: WeekdayKey[];
 };
 
 export type Shift = {

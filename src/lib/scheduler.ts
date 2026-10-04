@@ -44,6 +44,7 @@ import {
   type WorkHoursConfig,
 } from "./workHours";
 import { nrwHolidays } from "./holidays";
+import { effectiveTargetMinutes, hasPattern, planPattern, restDaysByEmployee } from "./weekPattern";
 
 export type GenerateInput = {
   year: number;
@@ -450,6 +451,78 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   return true;
 }
 
+/**
+ * An welchen Tagen darf diese Person überhaupt arbeiten? (offen, fester
+ * Wochentag, keine Berufsschule) – gemeinsame Grundlage für das „Mẫu tuần"-
+ * Soll im Planer und in der Prüfung.
+ */
+function eligibleFor(
+  employee: Employee,
+  dayOf: (isoDate: string) => ResolvedDay,
+): (isoDate: string) => boolean {
+  return (isoDate) =>
+    !dayOf(isoDate).closed && worksOnWeekday(employee, isoDate) && !isSchoolDay(employee, isoDate);
+}
+
+/**
+ * „Mẫu tuần" zuerst planen: an den festen Arbeitstagen der Person mit den
+ * vorgesehenen Längen (z. B. 4 × 6,5 h + 2 × 7 h).
+ *
+ * Welche Tage, steht durch die festen Ruhetage schon fest (restDaysByEmployee)
+ * – damit gibt es keine Läufe über sechs Tage, und eine am Monatsrand geteilte
+ * Woche passt mit dem Nachbarmonat zusammen. Zu entscheiden ist nur noch, auf
+ * welchen Tag welche Länge kommt: die längeren auf die stärkeren Tage.
+ *
+ * Diese Dienste bewegt der Reparaturlauf danach nicht mehr – sonst würde er
+ * die Tage je Woche wieder verschieben.
+ */
+function placePatterns(
+  state: SchedulerState,
+  list: Employee[],
+  restDays: Map<string, WeekdayKey[]>,
+): void {
+  for (const employee of list) {
+    const portions = planPattern(
+      employee,
+      state.dates,
+      eligibleFor(employee, state.dayOf),
+      restDays.get(employee.id) ?? [],
+    );
+    for (const portion of portions) {
+      const nachGewicht = [...portion.workdays].sort(
+        (a, b) => DAY_WEIGHTS[state.effKeyOf(b)] - DAY_WEIGHTS[state.effKeyOf(a)] || a.localeCompare(b),
+      );
+      nachGewicht.forEach((d, i) => {
+        const shift = makeShift(state, employee, d, portion.lengths[i]);
+        applyShift(state, shift);
+        state.remaining.set(employee.id, state.remaining.get(employee.id)! - shift.paidMinutes);
+      });
+    }
+  }
+}
+
+/**
+ * Monats-Soll je Person, wie Planer und Prüfung es ansetzen: bei „Mẫu tuần"
+ * mit Wochenvertrag aus den Wochen des Monats, sonst das eingetragene Soll.
+ */
+export function effectiveTargets(
+  input: Pick<GenerateInput, "year" | "month" | "workHours" | "overrides" | "employees" | "holidays">,
+): Map<string, number> {
+  const holidays = input.holidays ?? nrwHolidays(input.year);
+  const dayOf = (isoDate: string): ResolvedDay =>
+    resolveDay(input.workHours, isoDate, holidays, input.overrides ?? {});
+  const dates = datesOfMonth(input.year, input.month);
+  const ruhe = restDaysByEmployee(input.employees);
+  return new Map(
+    input.employees.map((e) => [
+      e.id,
+      hasPattern(e)
+        ? effectiveTargetMinutes(e, dates, eligibleFor(e, dayOf), ruhe.get(e.id) ?? [])
+        : e.targetMinutes,
+    ]),
+  );
+}
+
 /** Kosten eines Tages = |zugewiesene - rohe Soll-Minuten|. */
 function dateCost(state: SchedulerState, isoDate: string): number {
   return Math.abs(
@@ -493,6 +566,8 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
     // Kopie, da wir state.shifts während der Iteration verändern.
     for (const shift of [...state.shifts]) {
       const employee = employeesById.get(shift.employeeId)!;
+      // „Mẫu tuần": Tage je Woche und Ruhetag sind fest – nicht verschieben.
+      if (hasPattern(employee)) continue;
       const from = shift.date;
       const worked = state.worked.get(employee.id)!;
 
@@ -619,7 +694,9 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     dayOf(isoDate).closed ? 0 : DAY_WEIGHTS[effKeyOf(isoDate)];
 
   const dates = datesOfMonth(year, month);
-  const totalTargetMin = employees.reduce((sum, e) => sum + e.targetMinutes, 0);
+  // Bei „Mẫu tuần" mit Wochenvertrag folgt das Monats-Soll den Wochen.
+  const targetOf = effectiveTargets(input);
+  const totalTargetMin = employees.reduce((sum, e) => sum + targetOf.get(e.id)!, 0);
   const totalWeight = dates.reduce((sum, d) => sum + weightOf(d), 0);
 
   const rawTarget = new Map<string, number>();
@@ -654,7 +731,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
         );
       }
     }
-    remaining.set(e.id, e.targetMinutes);
+    remaining.set(e.id, targetOf.get(e.id)!);
   }
 
   const seed =
@@ -682,7 +759,12 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   // Rundenweise, rotierend platzieren: pro Runde eine Schicht je Mitarbeiter,
   // bis jedes Monats-Soll exakt erreicht ist. Die Schichtlänge passt sich dem
   // jeweiligen Tagesfenster an (z.B. kürzere Schicht an einem halben Tag).
-  const ordered = orderedEmployees(employees);
+  // Feste Wochen zuerst; ihre Dienste stehen danach fest, der Rest füllt auf.
+  const mitMuster = employees.filter(hasPattern);
+  placePatterns(state, mitMuster, restDaysByEmployee(employees));
+  for (const e of mitMuster) state.remaining.set(e.id, 0); // Abweichung meldet die Prüfung
+
+  const ordered = orderedEmployees(employees.filter((e) => !hasPattern(e)));
   const n = ordered.length;
   for (let round = 0; ; round++) {
     if (ordered.every((e) => state.remaining.get(e.id)! <= 0)) break;

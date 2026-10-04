@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Employee, Schedule, Shift } from "../types";
-import { generateSchedule } from "../lib/scheduler";
+import { effectiveTargets, generateSchedule } from "../lib/scheduler";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
 import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
 import { MIN_PASSWORD_LENGTH, hashPassword, passwordMatches } from "../lib/auth";
@@ -164,10 +164,19 @@ export function useSchedule() {
     setStoreIdState(nextStore.id);
   }, []);
 
-  const validation: ValidationResult = useMemo(
-    () => validateSchedule(schedule.employees, schedule.shifts),
-    [schedule.employees, schedule.shifts],
-  );
+  // Geprüft wird gegen das Soll, das auch der Planer ansetzt: bei „Mẫu tuần"
+  // mit Wochenvertrag folgt es den Wochen des Monats (siehe effectiveTargets).
+  const validation: ValidationResult = useMemo(() => {
+    const soll = effectiveTargets({
+      year: schedule.year,
+      month: schedule.month,
+      workHours: schedule.workHours,
+      overrides: overridesToMap(schedule.dateOverrides),
+      employees: schedule.employees,
+    });
+    const employees = schedule.employees.map((e) => ({ ...e, targetMinutes: soll.get(e.id) ?? e.targetMinutes }));
+    return validateSchedule(employees, schedule.shifts);
+  }, [schedule.year, schedule.month, schedule.workHours, schedule.dateOverrides, schedule.employees, schedule.shifts]);
 
   // ----- Firma / Monat / Öffnungszeiten -----
   const updateMeta = useCallback((patch: Partial<Schedule>) => {
