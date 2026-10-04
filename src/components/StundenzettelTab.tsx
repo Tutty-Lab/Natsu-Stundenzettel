@@ -29,7 +29,7 @@ const ALL = "all";
 
 export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const { schedule } = store;
-  const [mode, setMode] = useState<Mode>("week");
+  const [mode, setMode] = useState<Mode>("timesheet");
   const [layout, setLayout] = useState<Layout>("table");
   // Wochenplan: ALL = jede Woche des Monats (je Woche eine Seite), sonst weekStart.
   const [weekKey, setWeekKey] = useState<string>(ALL);
@@ -115,118 +115,95 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     );
   }
 
-  const selectClass = "rounded border border-slate-300 px-2 py-2 text-sm";
+  const selectClass = "rounded border border-slate-300 px-2 py-1.5 text-sm";
   const previewWeek = chosenWeeks[0];
 
   return (
     <>
       <div className="no-print">
-        <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <div className="text-sm font-medium text-slate-700">In &amp; Xuất file</div>
-            <div className="inline-flex rounded border border-slate-300 p-0.5" role="tablist">
-              {(
-                [
-                  ["week", "Lịch làm việc theo tuần"],
-                  ["timesheet", "Bảng chấm công"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={mode === key}
-                  onClick={() => setMode(key)}
-                  className={`rounded px-3 py-1.5 text-sm ${
-                    mode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 mb-3 flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded border border-slate-300 p-0.5" role="tablist">
+            {(
+              [
+                ["timesheet", "Bảng chấm công"],
+                ["week", "Lịch tuần"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={mode === key}
+                onClick={() => setMode(key)}
+                className={`rounded px-3 py-1 text-sm ${
+                  mode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
-          <div className="flex flex-wrap items-end gap-3">
-            {mode === "week" ? (
-              <>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500">Tuần</span>
-                  <select className={`${selectClass} min-w-[12rem]`} value={weekKey} onChange={(e) => setWeekKey(e.target.value)}>
-                    <option value={ALL}>Cả tháng (mỗi tuần một trang)</option>
-                    {weeks.map((w) => (
-                      <option key={w.weekStart} value={w.weekStart}>
-                        Tuần {w.number}: {w.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500">Dạng</span>
-                  <select className={selectClass} value={layout} onChange={(e) => setLayout(e.target.value as Layout)}>
-                    <option value="table">Bảng: nhân viên × ngày</option>
-                    <option value="timeline">Biểu đồ giờ theo ngày</option>
-                  </select>
-                </label>
-              </>
-            ) : (
-              <>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500">Nhân viên</span>
-                  <select className={`${selectClass} min-w-[10rem]`} value={who} onChange={(e) => setWho(e.target.value)}>
-                    <option value={ALL}>Tất cả (mỗi người một trang)</option>
-                    {schedule.employees.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500">Thời gian</span>
-                  <select className={`${selectClass} min-w-[10rem]`} value={period} onChange={(e) => setPeriod(e.target.value)}>
-                    <option value={ALL}>Cả tháng</option>
-                    {weeks.map((w) => (
-                      <option key={w.weekStart} value={w.weekStart}>
-                        Tuần {w.number}: {w.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </>
+          {mode === "week" ? (
+            <>
+              <select aria-label="Tuần" className={selectClass} value={weekKey} onChange={(e) => setWeekKey(e.target.value)}>
+                <option value={ALL}>Cả tháng (mỗi tuần một trang)</option>
+                {weeks.map((w) => (
+                  <option key={w.weekStart} value={w.weekStart}>
+                    Tuần {w.number}: {w.label}
+                  </option>
+                ))}
+              </select>
+              <select aria-label="Dạng" className={selectClass} value={layout} onChange={(e) => setLayout(e.target.value as Layout)}>
+                <option value="table">Bảng: nhân viên × ngày</option>
+                <option value="timeline">Biểu đồ giờ theo ngày</option>
+              </select>
+            </>
+          ) : (
+            <>
+              <select aria-label="Nhân viên" className={selectClass} value={who} onChange={(e) => setWho(e.target.value)}>
+                <option value={ALL}>Tất cả nhân viên</option>
+                {schedule.employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+              <select aria-label="Thời gian" className={selectClass} value={period} onChange={(e) => setPeriod(e.target.value)}>
+                <option value={ALL}>Cả tháng</option>
+                {weeks.map((w) => (
+                  <option key={w.weekStart} value={w.weekStart}>
+                    Tuần {w.number}: {w.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+
+          <div className="ml-auto flex items-center gap-2">
+            {pdfBusy && (
+              <span className="text-sm text-slate-500">
+                {pdfProgress ? `Đang tạo PDF (${pdfProgress})…` : "Đang tạo PDF…"}
+              </span>
             )}
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={pdfBusy}
-                onClick={onPrint}
-                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
-              >
-                In
-              </button>
-              <button
-                type="button"
-                disabled={pdfBusy}
-                onClick={() => void onPdf()}
-                className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
-              >
-                Xuất PDF
-              </button>
-              {pdfBusy && (
-                <span className="text-sm text-slate-500">
-                  {pdfProgress ? `Đang tạo PDF (${pdfProgress})…` : "Đang tạo PDF…"}
-                </span>
-              )}
-            </div>
+            <button
+              type="button"
+              disabled={pdfBusy}
+              onClick={onPrint}
+              title="Mở hộp thoại in. Chọn lề „Chuẩn“ và tỉ lệ 100 %."
+              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40"
+            >
+              In
+            </button>
+            <button
+              type="button"
+              disabled={pdfBusy}
+              onClick={() => void onPdf()}
+              className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
+            >
+              Xuất PDF
+            </button>
           </div>
-
-          <p className="mt-2 text-xs text-slate-500">
-            {mode === "week"
-              ? "Lịch tuần in cho cả quán. Dạng bảng in khổ ngang, mỗi tuần một trang."
-              : "Tờ Stundenaufzeichnung giữ tiếng Đức theo mẫu. Mỗi người một trang."}{" "}
-            Xuất PDF tải file về máy. In mở hộp thoại in: chọn lề „Chuẩn“ và tỉ lệ 100 %.
-          </p>
         </div>
 
         <div className="mb-1 text-xs text-slate-500">

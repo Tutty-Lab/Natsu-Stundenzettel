@@ -336,10 +336,17 @@ export function DocsTab() {
       </Section>
 
       <Section id="in" title="8. In và xuất file">
-        <p className="font-medium text-slate-900">In lịch làm việc theo tuần:</p>
+        <p className="font-medium text-slate-900">In bảng chấm công:</p>
+        <Steps>
+          <li>Mở tab Bảng chấm công. Nút „Bảng chấm công“ đã được chọn sẵn.</li>
+          <li>Chọn một người, hoặc chọn „Tất cả nhân viên“.</li>
+          <li>Chọn „Cả tháng“ hoặc một tuần.</li>
+          <li>Bấm „Xuất PDF“ hoặc „In“.</li>
+        </Steps>
+        <p className="font-medium text-slate-900 pt-1">In lịch làm việc theo tuần:</p>
         <Steps>
           <li>Mở tab Bảng chấm công.</li>
-          <li>Bấm „Lịch làm việc theo tuần“.</li>
+          <li>Bấm „Lịch tuần“.</li>
           <li>Chọn một tuần. Chọn „Cả tháng“ để in mỗi tuần một trang.</li>
           <li>Chọn dạng: „Bảng“ hoặc „Biểu đồ giờ“.</li>
           <li>Bấm „Xuất PDF“ hoặc „In“.</li>
@@ -348,13 +355,6 @@ export function DocsTab() {
           <li>Dạng Bảng: mỗi người một dòng, mỗi ngày một cột. Cột cuối là giờ công của tuần.</li>
           <li>Dạng Biểu đồ giờ: mỗi ngày một khối. Mỗi ca là một thanh từ giờ vào đến giờ ra.</li>
         </ul>
-        <p className="font-medium text-slate-900 pt-1">In bảng chấm công:</p>
-        <Steps>
-          <li>Bấm „Bảng chấm công“.</li>
-          <li>Chọn một người, hoặc chọn „Tất cả“.</li>
-          <li>Chọn „Cả tháng“ hoặc một tuần.</li>
-          <li>Bấm „Xuất PDF“ hoặc „In“.</li>
-        </Steps>
         <Note>
           Tờ Stundenaufzeichnung và lịch tuần dùng tiếng Đức, vì quán nộp các tờ này ở Đức. Tên
           tiếng Việt in không dấu.

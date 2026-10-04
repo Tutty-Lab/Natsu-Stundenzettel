@@ -162,14 +162,13 @@ describe("Natsu/Nava timesheet actions", () => {
 
     const html = renderToStaticMarkup(createElement(StundenzettelTab, { store }));
 
-    // Zwei Arten: Wochen-Dienstplan (Standard: Tabelle Person × Tag) und
-    // Stundenzettel. Je ein Knopf In / Xuất PDF; die Auswahl steht darüber.
+    // Zwei Arten: Stundenzettel (Standard) und Wochen-Dienstplan. Alles in
+    // einer Zeile: Umschalter, Auswahl, In / Xuất PDF.
     expect(html).toContain("Xuất PDF");
     expect(html).toContain("In");
-    expect(html).toContain("Lịch làm việc theo tuần");
-    expect(html).toContain("Bảng chấm công");
-    expect(html).toContain("Cả tháng (mỗi tuần một trang)");
-    expect(html).toContain("Bảng: nhân viên × ngày");
+    expect(html).toMatch(/aria-selected="true"[^>]*>Bảng chấm công</);
+    expect(html).toContain("Lịch tuần");
+    expect(html).toContain("Tất cả nhân viên");
     expect(html).not.toContain("CSV");
   });
 });
