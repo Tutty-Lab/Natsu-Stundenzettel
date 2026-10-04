@@ -447,7 +447,7 @@ function EmployeeSheet({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md max-h-[88vh] overflow-y-auto rounded-xl bg-white shadow-xl border border-slate-200"
+        className="popup-card w-full max-w-md rounded-xl bg-white shadow-xl border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">

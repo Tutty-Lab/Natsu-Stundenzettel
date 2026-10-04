@@ -71,7 +71,7 @@ export function ShiftCellEditor({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl bg-white shadow-xl border border-slate-200"
+        className="popup-card w-full max-w-md rounded-xl bg-white shadow-xl border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-slate-200 px-4 py-3">
