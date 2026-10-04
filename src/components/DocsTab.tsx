@@ -176,6 +176,10 @@ export function DocsTab() {
           <li>Nhập số giờ vào ô „Giờ định mức / tháng“.</li>
           <li>Bấm „Lưu“.</li>
         </Steps>
+        <p>
+          Ngày vào làm, ngày thôi làm, ngày làm trong tuần và Mẫu tuần nằm trong phần „Nâng cao“.
+          Phần này đóng khi bạn mở form. Dòng dưới chữ „Nâng cao“ cho biết các cài đặt đang có.
+        </p>
         <p className="font-medium text-slate-900 pt-1">Ngày vào làm và ngày thôi làm:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li>Ứng dụng không xếp ca trước ngày vào làm.</li>
@@ -236,7 +240,8 @@ export function DocsTab() {
         <Steps>
           <li>Mở tab Nhân viên.</li>
           <li>Bấm vào dòng của người đó.</li>
-          <li>Trong phần „Lịch tuần“, bấm „Dùng mẫu toàn thời gian“.</li>
+          <li>Bấm „Nâng cao“.</li>
+          <li>Bấm „Dùng mẫu toàn thời gian“.</li>
           <li>Đọc dòng xem trước. Dòng này cho biết số ca, giờ công và giờ có mặt.</li>
           <li>Bấm „Lưu“.</li>
         </Steps>

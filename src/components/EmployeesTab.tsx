@@ -65,6 +65,21 @@ function patternSummary(p: WeekPattern): string {
   return teile.join(" · ");
 }
 
+/** Tóm tắt các thiết lập „Nâng cao" đang đặt (dòng dưới tiêu đề), hoặc null. */
+function advancedSummary(d: Draft): string | null {
+  const parts: string[] = [];
+  const pattern = patternFrom(d);
+  if (pattern) parts.push(patternSummary(pattern));
+  else if (d.maxDays !== "" && d.employmentType !== "AZUBI") parts.push(`tối đa ${d.maxDays} ngày/tuần`);
+  if (d.availableWeekdays.length > 0 && d.availableWeekdays.length < WEEKDAY_ORDER.length) {
+    const days = WEEKDAY_ORDER.filter((key) => d.availableWeekdays.includes(key)).map((key) => WEEKDAY_SHORT_VI[key]);
+    parts.push(`chỉ ${days.join(" ")}`);
+  }
+  const period = employmentPeriodLabel({ startDate: d.startDate || undefined, endDate: d.endDate || undefined } as Employee);
+  if (period) parts.push(period);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 type Draft = {
   name: string;
   employmentType: EmploymentType;
@@ -359,10 +374,6 @@ function EmployeeSummaryRow({ emp }: { emp: Employee }) {
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{children}</h4>;
-}
-
 function EmployeeSheet({
   employee,
   onClose,
@@ -424,6 +435,11 @@ function EmployeeSheet({
   const vorschau = festeTage ? patternPreview(d) : null;
   const ruheSoll = 7 - Math.round(Number(d.pDays) || 0);
   const speicherbar = !zeitraumFehler && (!vorschau || vorschau.ok);
+  const zusammenfassung = zeitraumFehler
+    ? "Ngày thôi làm phải sau ngày vào làm."
+    : vorschau && !vorschau.ok
+      ? `Lịch tuần: ${vorschau.lines[0]}`
+      : advancedSummary(d);
 
   return (
     <div
@@ -431,7 +447,7 @@ function EmployeeSheet({
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-lg bg-white shadow-xl border border-slate-200"
+        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-lg bg-white shadow-xl border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
@@ -443,10 +459,8 @@ function EmployeeSheet({
           </button>
         </div>
 
-        <div className="px-4 py-3 space-y-5">
-          {/* ---- Thông tin ---- */}
+        <div className="px-4 py-3 space-y-4">
           <div className="space-y-3">
-            <SectionTitle>Thông tin</SectionTitle>
             <label className="block">
               <span className="text-xs text-slate-600">Tên</span>
               <input
@@ -509,9 +523,27 @@ function EmployeeSheet({
             )}
           </div>
 
+          {/*
+            „Nâng cao" wie bei Shin Coco: selten geändert, deshalb eingeklappt.
+            Die Zusammenfassung in der Kopfzeile zeigt, was gesetzt ist – so
+            bleibt keine Einschränkung unsichtbar. Bei einem Fehler (Datum,
+            Mẫu tuần) wird die Zeile rot und „Lưu" ist gesperrt.
+          */}
+          <details className="group rounded-lg border border-slate-200">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+              <span>
+                Nâng cao
+                {zusammenfassung && (
+                  <span className={`block text-xs font-normal ${speicherbar ? "text-slate-500" : "text-rose-600"}`}>
+                    {zusammenfassung}
+                  </span>
+                )}
+              </span>
+              <span className="text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
+            </summary>
+            <div className="space-y-4 border-t border-slate-100 px-3 pb-3 pt-3">
           {/* ---- Thời gian làm việc ---- */}
-          <div className="space-y-2 border-t border-slate-100 pt-4">
-            <SectionTitle>Thời gian làm việc</SectionTitle>
+          <div className="space-y-2">
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-xs text-slate-600">Ngày vào làm</span>
@@ -535,14 +567,12 @@ function EmployeeSheet({
             <p className={`text-xs ${zeitraumFehler ? "text-rose-600" : "text-slate-500"}`}>
               {zeitraumFehler
                 ? "Ngày thôi làm phải sau ngày vào làm."
-                : "Để trống nếu không có. App không xếp ca ngoài khoảng này. Tháng có ngày vào hoặc thôi làm thì giờ tính theo số ngày đi làm."}
+                : "Để trống nếu không có. Tháng có ngày vào hoặc thôi làm thì giờ tính theo số ngày đi làm."}
             </p>
           </div>
 
           {/* ---- Lịch tuần ---- */}
-          <div className="space-y-3 border-t border-slate-100 pt-4">
-            <SectionTitle>Lịch tuần</SectionTitle>
-
+          <div className="space-y-3 border-t border-slate-100 pt-3">
             <div>
               <div className="text-xs text-slate-600 mb-1.5">
                 Ngày làm được trong tuần
@@ -678,6 +708,8 @@ function EmployeeSheet({
               </div>
             )}
           </div>
+            </div>
+          </details>
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3">
