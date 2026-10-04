@@ -10,6 +10,10 @@ import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
 import { isAuthenticated, logout } from "./lib/auth";
 import { monthLabel } from "./lib/shiftOps";
+import { MONTH_NAMES_VI } from "./lib/dateFormat";
+
+/** Jahre für die Auswahl oben: Vorjahr bis fünf Jahre voraus. */
+const YEARS = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i);
 
 type TabId =
   | "einstellungen"
@@ -66,6 +70,33 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {/* Tháng/năm đang làm việc – đổi ở đây cho mọi tab. */}
+            <div className="inline-flex items-center gap-1.5" aria-label="Chọn tháng và năm">
+              <select
+                aria-label="Tháng"
+                value={store.schedule.month}
+                onChange={(e) => store.updateMeta({ month: Number(e.target.value) })}
+                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
+              >
+                {MONTH_NAMES_VI.map((name, i) => (
+                  <option key={name} value={i + 1}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Năm"
+                value={store.schedule.year}
+                onChange={(e) => store.updateMeta({ year: Number(e.target.value) })}
+                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
+              >
+                {(YEARS.includes(store.schedule.year) ? YEARS : [store.schedule.year, ...YEARS]).map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               onClick={() => {
                 if (confirm(`Xoá toàn bộ dữ liệu của ${store.schedule.companyName}?`)) {

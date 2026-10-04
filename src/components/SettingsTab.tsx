@@ -89,7 +89,6 @@ function WindowRow({
 
 export function SettingsTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, updateMeta, upsertOverride, removeOverride , changePassword, hasOwnPassword } = store;
-  const years = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i);
 
   // ---- Ngày đặc biệt (Ausnahmen) ----
   const monthDates = useMemo(
@@ -189,33 +188,9 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
             </Field>
           </div>
 
-          <Field label="Tháng">
-            <select
-              className={inputClass}
-              value={schedule.month}
-              onChange={(e) => updateMeta({ month: Number(e.target.value) })}
-            >
-              {MONTH_NAMES_VI.map((name, i) => (
-                <option key={name} value={i + 1}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Năm">
-            <select
-              className={inputClass}
-              value={schedule.year}
-              onChange={(e) => updateMeta({ year: Number(e.target.value) })}
-            >
-              {years.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <p className="md:col-span-2 text-xs text-slate-500">
+            Chọn tháng và năm ở thanh trên cùng.
+          </p>
         </div>
       </section>
 

@@ -45,6 +45,7 @@ import {
 } from "./workHours";
 import { nrwHolidays } from "./holidays";
 import { effectiveTargetMinutes, hasPattern, planPattern, restDaysByEmployee } from "./weekPattern";
+import { isEmployeeActiveOn, prorateMinutes } from "./employmentPeriod";
 
 export type GenerateInput = {
   year: number;
@@ -369,6 +370,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   for (const isoDate of state.dates) {
     if (worked.has(isoDate)) continue; // max. ein Dienst pro Tag
     if (isSchoolDay(employee, isoDate)) continue;
+    if (!isEmployeeActiveOn(employee, isoDate)) continue; // vor Eintritt / nach Austritt
     if (!worksOnWeekday(employee, isoDate)) continue; // fester freier Wochentag
     const day = state.dayOf(isoDate);
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
@@ -461,7 +463,22 @@ function eligibleFor(
   dayOf: (isoDate: string) => ResolvedDay,
 ): (isoDate: string) => boolean {
   return (isoDate) =>
-    !dayOf(isoDate).closed && worksOnWeekday(employee, isoDate) && !isSchoolDay(employee, isoDate);
+    !dayOf(isoDate).closed &&
+    worksOnWeekday(employee, isoDate) &&
+    !isSchoolDay(employee, isoDate) &&
+    isEmployeeActiveOn(employee, isoDate);
+}
+
+/**
+ * Monats-Soll gekürzt auf den beschäftigten Teil des Monats (Eintritt/
+ * Austritt). Muster mit Wochenvertrag brauchen das nicht – dort zählen nur die
+ * beschäftigten Arbeitstage. Ganze Stunden für den normalen Planer, 30′ für
+ * Muster ohne Wochenvertrag.
+ */
+function proratedEmployee(employee: Employee, dates: string[]): Employee {
+  if (hasPattern(employee) && employee.weekPattern!.weeklyHours !== undefined) return employee;
+  const target = prorateMinutes(employee.targetMinutes, employee, dates, hasPattern(employee) ? 30 : 60);
+  return target === employee.targetMinutes ? employee : { ...employee, targetMinutes: target };
 }
 
 /**
@@ -514,12 +531,15 @@ export function effectiveTargets(
   const dates = datesOfMonth(input.year, input.month);
   const ruhe = restDaysByEmployee(input.employees);
   return new Map(
-    input.employees.map((e) => [
-      e.id,
-      hasPattern(e)
-        ? effectiveTargetMinutes(e, dates, eligibleFor(e, dayOf), ruhe.get(e.id) ?? [])
-        : e.targetMinutes,
-    ]),
+    input.employees.map((original) => {
+      const e = proratedEmployee(original, dates);
+      return [
+        e.id,
+        hasPattern(e)
+          ? effectiveTargetMinutes(e, dates, eligibleFor(e, dayOf), ruhe.get(e.id) ?? [])
+          : e.targetMinutes,
+      ] as const;
+    }),
   );
 }
 
@@ -591,6 +611,7 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         const day = state.dayOf(to);
         if (day.closed || windowLength(day) < presence) continue; // geschlossen / passt nicht
         if (isSchoolDay(employee, to)) continue;
+        if (!isEmployeeActiveOn(employee, to)) continue;
         if (!worksOnWeekday(employee, to)) continue; // fester freier Wochentag
         // 6-Tage-Regel prüfen, als ob "from" bereits entfernt wäre.
         const trial = new Set(worked);
@@ -717,8 +738,8 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     weekendCount.set(e.id, 0);
     weekMinutes.set(e.id, new Map());
     shiftCounts.set(e.id, 0);
-    if (e.employmentType === "TEILZEIT" && e.targetMinutes % 60 === 0) {
-      const targetHours = e.targetMinutes / 60;
+    if (e.employmentType === "TEILZEIT" && targetOf.get(e.id)! % 60 === 0) {
+      const targetHours = targetOf.get(e.id)! / 60;
       if (targetHours >= 4) {
         const minimumCount = Math.ceil(targetHours / 8);
         const preferredCount = preferredPartTimeShiftCount(targetHours);
@@ -760,7 +781,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   // bis jedes Monats-Soll exakt erreicht ist. Die Schichtlänge passt sich dem
   // jeweiligen Tagesfenster an (z.B. kürzere Schicht an einem halben Tag).
   // Feste Wochen zuerst; ihre Dienste stehen danach fest, der Rest füllt auf.
-  const mitMuster = employees.filter(hasPattern);
+  const mitMuster = employees.filter(hasPattern).map((e) => proratedEmployee(e, dates));
   placePatterns(state, mitMuster, restDaysByEmployee(employees));
   for (const e of mitMuster) state.remaining.set(e.id, 0); // Abweichung meldet die Prüfung
 

@@ -165,14 +165,14 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                 onClick={onPrint}
                 className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
               >
-                🖨 In
+                In
               </button>
               <button
                 disabled={pdfBusy}
                 onClick={onPdf}
                 className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
               >
-                ⬇ Xuất PDF
+                Xuất PDF
               </button>
               {pdfBusy && (
                 <span className="text-sm text-slate-500">

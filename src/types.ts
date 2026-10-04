@@ -54,6 +54,10 @@ export type Employee = {
    * optional mit Wochenvertrag. Siehe lib/weekPattern.ts. Nicht für Azubi.
    */
   weekPattern?: WeekPattern;
+  /** Ngày vào làm (yyyy-MM-dd, inklusiv). Davor wird nicht eingeplant. */
+  startDate?: string;
+  /** Ngày thôi làm = letzter Arbeitstag (yyyy-MM-dd, inklusiv). Danach nicht mehr. */
+  endDate?: string;
 };
 
 export type WeekPattern = {
