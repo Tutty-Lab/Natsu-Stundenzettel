@@ -67,11 +67,11 @@ export function ShiftCellEditor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-lg bg-white shadow-xl border border-slate-200"
+        className="w-full max-w-md rounded-xl bg-white shadow-xl border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-slate-200 px-4 py-3">

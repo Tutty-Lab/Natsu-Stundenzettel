@@ -443,11 +443,11 @@ function EmployeeSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-lg bg-white shadow-xl border border-slate-200"
+        className="w-full max-w-md max-h-[88vh] overflow-y-auto rounded-xl bg-white shadow-xl border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
