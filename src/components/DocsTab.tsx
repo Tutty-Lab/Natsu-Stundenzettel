@@ -152,21 +152,21 @@ export function DocsTab() {
       <Section id="hang-thang" title="2. Quy trình mỗi tháng">
         <p>
           Ứng dụng có 2 quán: NATSU và nava. Mỗi quán có nhân viên, cài đặt và lịch riêng. Bấm nút
-          NATSU hoặc nava phía dưới các tab để đổi quán. Tháng và năm dùng chung cho cả 2 quán.
+          NATSU hoặc nava phía dưới các tab để đổi quán. Cả 2 quán luôn xem cùng một tháng.
         </p>
         <Caution>
           Nút „+ Tạo lịch làm việc“ thay toàn bộ lịch của tháng ở cả 2 quán. Các ca bạn sửa tay sẽ mất.
           Tạo lịch trước, sau đó mới sửa tay.
         </Caution>
         <Steps>
-          <li>Chọn tháng và năm ở dòng thứ hai của thanh trên cùng.</li>
           <li>Với mỗi quán: mở tab Cài đặt. Kiểm tra giờ mở cửa và ngày đặc biệt.</li>
           <li>Với mỗi quán: mở tab Nhân viên. Kiểm tra định mức, ngày vào làm và ngày thôi làm.</li>
           <li>Với Azubi: mở người đó trong tab Nhân viên. Kiểm tra kỳ học, giờ mỗi tuần và ngày học.</li>
-          <li>Bấm nút xanh „+ Tạo lịch làm việc“. Ứng dụng tạo lịch cho cả 2 quán.</li>
-          <li>Kiểm tra nút NATSU và nava. Cả hai phải ghi „✓ hợp lệ“.</li>
+          <li>Bấm nút xanh „+ Tạo lịch làm việc“. Chọn tháng và năm trong cửa sổ hiện ra.</li>
+          <li>Đọc phần ngày lễ, ngày đóng cửa và thay đổi nhân sự của từng quán. Bấm „Tạo lịch“. Ứng dụng tạo lịch cho cả 2 quán.</li>
+          <li>Kiểm tra dòng trạng thái của từng quán. Dòng này phải ghi „Hợp lệ“. Nút quán có chấm đỏ là lịch có lỗi.</li>
           <li>Sửa tay các ca cần đổi.</li>
-          <li>Mở tab Bảng chấm công. In lịch tuần và bảng chấm công.</li>
+          <li>Mở tab Thời gian biểu. In lịch theo tuần. Mở tab Bảng chấm công. In bảng chấm công.</li>
         </Steps>
         <Note>Mỗi lần bấm „+ Tạo lịch làm việc“, ứng dụng cho một lịch khác. Mọi lịch đều đúng định mức.</Note>
         <p className="font-medium text-slate-900 pt-1">Lịch đã lưu:</p>
@@ -385,16 +385,15 @@ export function DocsTab() {
       <Section id="in" title="8. In và xuất file">
         <p className="font-medium text-slate-900">In bảng chấm công:</p>
         <Steps>
-          <li>Mở tab Bảng chấm công. Nút „Bảng chấm công“ đã được chọn sẵn.</li>
+          <li>Mở tab Bảng chấm công.</li>
           <li>Chọn một người, hoặc chọn „Tất cả nhân viên“.</li>
           <li>Chọn „Cả tháng“ hoặc một tuần.</li>
           <li>Bấm „Xuất PDF“ hoặc „In“.</li>
         </Steps>
-        <p className="font-medium text-slate-900 pt-1">In lịch làm việc theo tuần:</p>
+        <p className="font-medium text-slate-900 pt-1">In thời gian biểu (Dienstplan) theo tuần:</p>
         <Steps>
-          <li>Mở tab Bảng chấm công.</li>
-          <li>Bấm „Lịch tuần“.</li>
-          <li>Chọn một tuần. Chọn „Cả tháng“ để in mỗi tuần một trang.</li>
+          <li>Mở tab Thời gian biểu. Tuần hiện tại đã được chọn sẵn.</li>
+          <li>Bấm một tuần. Bấm „Cả tháng“ để in mỗi tuần một trang.</li>
           <li>Chọn dạng: „Bảng“ hoặc „Biểu đồ giờ“.</li>
           <li>Bấm „Xuất PDF“ hoặc „In“.</li>
         </Steps>

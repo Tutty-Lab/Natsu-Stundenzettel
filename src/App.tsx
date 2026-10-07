@@ -8,15 +8,12 @@ import { DocsTab } from "./components/DocsTab";
 import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
 import { SavedSchedulesPanel, savedRows } from "./components/SavedSchedules";
+import { CreateScheduleDialog } from "./components/CreateScheduleDialog";
 import { isAuthenticated, logout } from "./lib/auth";
-import { MONTH_NAMES_VI } from "./lib/dateFormat";
 import { monthLabel } from "./lib/shiftOps";
 import { loadStoreId, saveStoreId } from "./lib/stores";
 
-/** Jahre für die Auswahl oben: Vorjahr bis fünf Jahre voraus. */
-const YEARS = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i);
-
-type TabId = "dienstplan" | "mitarbeiter" | "stundenzettel" | "einstellungen";
+type TabId = "dienstplan" | "mitarbeiter" | "stundenzettel" | "wochenplan" | "einstellungen";
 
 // Aufbau wie Thiên Long: Häufiges zuerst, Azubi steckt im Formular der Person,
 // Tài liệu sitzt oben rechts im Kopf.
@@ -24,6 +21,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "dienstplan", label: "Lịch làm việc" },
   { id: "mitarbeiter", label: "Nhân viên" },
   { id: "stundenzettel", label: "Bảng chấm công" },
+  { id: "wochenplan", label: "Thời gian biểu" },
   { id: "einstellungen", label: "Cài đặt" },
 ];
 
@@ -47,6 +45,9 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<TabId>("dienstplan");
   const [showDocs, setShowDocs] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
+  const [askCreate, setAskCreate] = useState(false);
+  // Nach dem Monatswechsel erst erzeugen, wenn beide Filialen im Zielmonat sind.
+  const [pendingCreate, setPendingCreate] = useState<{ year: number; month: number } | null>(null);
   const { schedule } = store;
 
   const selectStore = (id: string) => {
@@ -70,19 +71,23 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     for (const s of stores) s.updateMeta({ year, month });
   };
 
-  const create = () => {
-    const withPlan = stores.filter((s) => s.schedule.shifts.length > 0);
-    if (
-      withPlan.length > 0 &&
-      !confirm(
-        `Tạo lại lịch ${monthLabel(schedule.year, schedule.month)} cho cả 2 quán? Lịch hiện tại sẽ bị thay, kể cả những ca đã sửa tay.`,
-      )
-    ) {
-      return;
-    }
+  useEffect(() => {
+    if (!pendingCreate) return;
+    const ready = stores.every(
+      (s) => s.schedule.year === pendingCreate.year && s.schedule.month === pendingCreate.month,
+    );
+    if (!ready) return;
+    setPendingCreate(null);
+    for (const s of stores) if (s.schedule.employees.length > 0) s.generate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCreate, natsu.schedule, nava.schedule]);
+
+  const createFor = (year: number, month: number) => {
+    setAskCreate(false);
     setShowDocs(false);
     setTab("dienstplan");
-    for (const s of stores) if (s.schedule.employees.length > 0) s.generate();
+    setMonth(year, month);
+    setPendingCreate({ year, month });
   };
 
   const remoteStatus = stores.some((s) => s.remoteStatus === "error")
@@ -129,39 +134,11 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               </button>
             </div>
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-300">
-            <span>NATSU &amp; nava</span>
-            <span className="text-slate-500">·</span>
-            {/* Tháng/năm đang làm việc – đổi ở đây cho mọi tab và cả 2 quán. */}
-            <span className="inline-flex items-center gap-1" aria-label="Chọn tháng và năm">
-              <select
-                aria-label="Tháng"
-                value={schedule.month}
-                onChange={(e) => setMonth(schedule.year, Number(e.target.value))}
-                className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-xs text-white"
-              >
-                {MONTH_NAMES_VI.map((name, i) => (
-                  <option key={name} value={i + 1}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Năm"
-                value={schedule.year}
-                onChange={(e) => setMonth(Number(e.target.value), schedule.month)}
-                className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-xs text-white"
-              >
-                {(YEARS.includes(schedule.year) ? YEARS : [schedule.year, ...YEARS]).map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </span>
+          <p className="mt-0.5 text-xs text-slate-300">
+            {monthLabel(schedule.year, schedule.month)}
             {remoteStatus !== "off" && (
               <span className={remoteStatus === "error" ? "text-rose-300" : "text-slate-400"}>
-                ·{" "}
+                {" · "}
                 {remoteStatus === "saving"
                   ? "đang đồng bộ…"
                   : remoteStatus === "error"
@@ -169,7 +146,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                     : "đã đồng bộ"}
               </span>
             )}
-          </div>
+          </p>
         </div>
       </header>
 
@@ -188,11 +165,10 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
             <div className="-mx-3 flex items-center gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
               <button
-                onClick={create}
-                disabled={stores.every((s) => s.schedule.employees.length === 0)}
-                className="shrink-0 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-40"
+                onClick={() => setAskCreate(true)}
+                className="shrink-0 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
               >
-                + Tạo lịch làm việc <span className="font-normal opacity-80">(2 quán)</span>
+                + Tạo lịch làm việc
               </button>
               <button
                 onClick={() => setShowSaved((v) => !v)}
@@ -237,11 +213,6 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           </div>
 
           <main className="mx-auto max-w-[1500px] px-3 sm:px-4 py-4">
-            {(tab === "dienstplan" || tab === "stundenzettel") && (
-              <div className="no-print mb-3 text-right text-sm text-slate-500">
-                {store.storeConfig.name} · {monthLabel(schedule.year, schedule.month)}
-              </div>
-            )}
             {/* key: beim Umschalten der Filiale lokale Ansichtszustände frisch anlegen. */}
             <div className="no-print" key={store.storeId}>
               {tab === "einstellungen" && <SettingsTab store={store} />}
@@ -250,14 +221,28 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             </div>
             {/* Bảng chấm công chứa vùng in – luôn render khi tab active */}
             {tab === "stundenzettel" && <StundenzettelTab key={store.storeId} store={store} />}
+            {/* Thời gian biểu: Dienstplan theo tuần cho cả quán, in mỗi tuần một trang. */}
+            {tab === "wochenplan" && (
+              <StundenzettelTab key={`${store.storeId}-week`} store={store} kind="week" />
+            )}
           </main>
         </>
+      )}
+
+      {askCreate && (
+        <CreateScheduleDialog
+          stores={stores}
+          initialYear={schedule.year}
+          initialMonth={schedule.month}
+          onClose={() => setAskCreate(false)}
+          onCreate={createFor}
+        />
       )}
     </div>
   );
 }
 
-/** Umschalter NATSU | nava mit Kurzstatus je Filiale (Lịch, Nhân viên, Bảng chấm công, Cài đặt). */
+/** Umschalter NATSU | nava – nur der Name, roter Punkt bei Fehlern im Plan. */
 function StoreSwitch({
   stores,
   activeId,
@@ -269,36 +254,27 @@ function StoreSwitch({
 }) {
   return (
     <div
-      className="grid gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
+      className="inline-grid gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm"
       style={{ gridTemplateColumns: `repeat(${stores.length}, minmax(0, 1fr))` }}
       role="tablist"
       aria-label="Chọn quán"
     >
       {stores.map((s) => {
         const on = s.storeId === activeId;
-        const status =
-          s.genError
-            ? { text: "lỗi tạo lịch", tone: "text-rose-600" }
-            : s.schedule.shifts.length === 0
-              ? { text: s.schedule.employees.length === 0 ? "chưa có nhân viên" : "chưa tạo lịch", tone: "text-slate-400" }
-              : s.validation.valid
-                ? { text: "✓ hợp lệ", tone: "text-emerald-600" }
-                : { text: `${s.validation.errors.length} lỗi`, tone: "text-rose-600" };
+        const broken = !!s.genError || (s.schedule.shifts.length > 0 && !s.validation.valid);
         return (
           <button
             key={s.storeId}
             role="tab"
             aria-selected={on}
             onClick={() => onSelect(s.storeId)}
-            className={`min-w-0 rounded-lg px-3 py-2 text-left transition-colors ${
-              on ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
+            title={broken ? "Lịch có lỗi" : undefined}
+            className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+              on ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"
             }`}
           >
-            <span className="block truncate text-sm font-semibold">{s.storeConfig.name}</span>
-            <span className={`block truncate text-xs ${on ? "text-slate-300" : "text-slate-500"}`}>
-              {s.schedule.employees.length} nhân viên ·{" "}
-              <span className={on ? "" : status.tone}>{status.text}</span>
-            </span>
+            <span className="truncate">{s.storeId === "natsu" ? "NATSU" : s.storeConfig.name}</span>
+            {broken && <span className="h-2 w-2 shrink-0 rounded-full bg-rose-500" aria-label="có lỗi" />}
           </button>
         );
       })}

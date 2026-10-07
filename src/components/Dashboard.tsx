@@ -37,42 +37,16 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
 
   return (
     <div>
-      {/* Kurzfassung immer sichtbar; Einzelzahlen nur aufgeklappt (wie Thiên Long). */}
-      <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
-        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-sm [&::-webkit-details-marker]:hidden">
-          <span className={`font-semibold ${statusAccent}`}>{statusValue}</span>
-          <span className="text-slate-600">
-            {schedule.employees.length} nhân viên · định mức {minutesToDecimalHours(targetMin)} h · đã xếp{" "}
-            {minutesToDecimalHours(plannedMin)} h
-          </span>
-          <span className="ml-auto text-xs text-slate-400 group-open:hidden">Chi tiết ▾</span>
-          <span className="ml-auto hidden text-xs text-slate-400 group-open:inline">Thu gọn ▴</span>
-        </summary>
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-2 border-t border-slate-100 p-2">
-          <Stat label="Số nhân viên" value={String(schedule.employees.length)} />
-          <Stat label="Toàn thời gian" value={String(vz)} />
-          <Stat label="Bán thời gian" value={String(tz)} />
-          <Stat label="Azubi" value={String(azubi)} />
-          <Stat label="Tổng giờ định mức" value={`${minutesToDecimalHours(targetMin)} h`} />
-          <Stat label="Tổng giờ đã xếp" value={`${minutesToDecimalHours(plannedMin)} h`} />
-          <Stat label="Trạng thái kiểm tra" value={statusValue} accent={statusAccent} />
-        </div>
-      </details>
-      {notGenerated && schedule.employees.length > 0 && (
-        <div className="mt-2 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-3 py-2">
-          Chưa có lịch tháng này. Bấm „+ Tạo lịch làm việc" để tạo lịch.
-        </div>
-      )}
-      {notGenerated && schedule.employees.length === 0 && (
-        <div className="mt-2 rounded bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
-          Chưa có nhân viên. Mở tab „Nhân viên" và bấm „+ Thêm".
-        </div>
-      )}
-      {validation.valid && schedule.shifts.length > 0 && (
-        <div className="mt-2 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-3 py-2">
-          Tất cả giờ định mức đã được phân bổ chính xác.
-        </div>
-      )}
+      {/* Thống kê luôn hiện (không thu gọn), trạng thái đứng đầu. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+        <Stat label="Trạng thái kiểm tra" value={statusValue} accent={statusAccent} />
+        <Stat label="Số nhân viên" value={String(schedule.employees.length)} />
+        <Stat label="Toàn thời gian" value={String(vz)} />
+        <Stat label="Bán thời gian" value={String(tz)} />
+        <Stat label="Azubi" value={String(azubi)} />
+        <Stat label="Tổng giờ định mức" value={`${minutesToDecimalHours(targetMin)} h`} />
+        <Stat label="Tổng giờ đã xếp" value={`${minutesToDecimalHours(plannedMin)} h`} />
+      </div>
     </div>
   );
 }

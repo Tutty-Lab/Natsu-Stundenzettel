@@ -170,8 +170,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           </div>
 
           <p className="md:col-span-2 text-xs text-slate-500">
-            Cài đặt này chỉ cho quán đang chọn. Đổi quán bằng nút NATSU | nava phía trên. Chọn tháng
-            và năm ở thanh trên cùng.
+            Cài đặt này chỉ cho quán đang chọn. Đổi quán bằng nút NATSU | nava phía trên.
           </p>
         </div>
       </section>

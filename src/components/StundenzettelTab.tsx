@@ -27,12 +27,15 @@ type PrintJob =
 
 const ALL = "all";
 
-export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
+/**
+ * Zwei Tabs teilen sich diese Komponente: „Bảng chấm công" (Stundenzettel je
+ * Person) und „Thời gian biểu" (Wochen-Dienstplan des ganzen Ladens, je Woche
+ * eine Seite).
+ */
+export function StundenzettelTab({ store, kind = "timesheet" }: { store: UseScheduleReturn; kind?: Mode }) {
   const { schedule } = store;
-  const [mode, setMode] = useState<Mode>("timesheet");
+  const mode = kind;
   const [layout, setLayout] = useState<Layout>("table");
-  // Wochenplan: ALL = jede Woche des Monats (je Woche eine Seite), sonst weekStart.
-  const [weekKey, setWeekKey] = useState<string>(ALL);
   // Stundenzettel: Person (ALL = alle) und Zeitraum (ALL = ganzer Monat, sonst weekStart).
   const [who, setWho] = useState<string>(ALL);
   const [period, setPeriod] = useState<string>(ALL);
@@ -50,6 +53,13 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     [schedule.year, schedule.month],
   );
   const monthTag = `${schedule.year}-${String(schedule.month).padStart(2, "0")}`;
+  // Thời gian biểu: ALL = jede Woche des Monats (je Woche eine Seite), sonst
+  // weekStart. Start: die Woche mit dem heutigen Tag, sonst die erste.
+  const [weekKey, setWeekKey] = useState<string>(() => {
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    return (weeks.find((w) => w.dates.includes(iso)) ?? weeks[0])?.weekStart ?? ALL;
+  });
 
   const chosenWeeks: WocheZumDruck[] = (weekKey === ALL ? weeks : weeks.filter((w) => w.weekStart === weekKey)).map(
     (w) => ({ dates: w.dates, label: w.title }),
@@ -122,38 +132,37 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     <>
       <div className="no-print">
         <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 mb-3 flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded border border-slate-300 p-0.5" role="tablist">
-            {(
-              [
-                ["timesheet", "Bảng chấm công"],
-                ["week", "Lịch tuần"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={mode === key}
-                onClick={() => setMode(key)}
-                className={`rounded px-3 py-1 text-sm ${
-                  mode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
           {mode === "week" ? (
             <>
-              <select aria-label="Tuần" className={selectClass} value={weekKey} onChange={(e) => setWeekKey(e.target.value)}>
-                <option value={ALL}>Cả tháng (mỗi tuần một trang)</option>
+              <div className="flex flex-wrap gap-1" role="group" aria-label="Tuần">
                 {weeks.map((w) => (
-                  <option key={w.weekStart} value={w.weekStart}>
-                    Tuần {w.number}: {w.label}
-                  </option>
+                  <button
+                    key={w.weekStart}
+                    type="button"
+                    aria-pressed={weekKey === w.weekStart}
+                    onClick={() => setWeekKey(w.weekStart)}
+                    className={`rounded-full border px-3 py-1 text-sm ${
+                      weekKey === w.weekStart
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
+                    }`}
+                  >
+                    Tuần {w.number} <span className="opacity-70">{w.label}</span>
+                  </button>
                 ))}
-              </select>
+                <button
+                  type="button"
+                  aria-pressed={weekKey === ALL}
+                  onClick={() => setWeekKey(ALL)}
+                  className={`rounded-full border px-3 py-1 text-sm ${
+                    weekKey === ALL
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
+                  }`}
+                >
+                  Cả tháng
+                </button>
+              </div>
               <select aria-label="Dạng" className={selectClass} value={layout} onChange={(e) => setLayout(e.target.value as Layout)}>
                 <option value="table">Bảng: nhân viên × ngày</option>
                 <option value="timeline">Biểu đồ giờ theo ngày</option>
@@ -210,7 +219,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
           {mode === "week" ? (
             <>
               Xem trước: <b>{previewWeek?.label}</b>
-              {weekKey === ALL && weeks.length > 1 && ` (và ${weeks.length - 1} tuần nữa)`}
+              {weekKey === ALL && weeks.length > 1 && ` (và ${weeks.length - 1} tuần nữa, mỗi tuần in một trang)`}
             </>
           ) : (
             <>
