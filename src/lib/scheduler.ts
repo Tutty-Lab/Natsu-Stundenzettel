@@ -46,6 +46,7 @@ import {
 import { nrwHolidays } from "./holidays";
 import { effectiveTargetMinutes, hasPattern, planPattern, restDaysByEmployee } from "./weekPattern";
 import { isEmployeeActiveOn, prorateMinutes } from "./employmentPeriod";
+import { floorDeficit, isMinijob, retimeDay, type StaffingConfig } from "./coverage";
 
 export type GenerateInput = {
   year: number;
@@ -59,6 +60,11 @@ export type GenerateInput = {
   holidays?: Set<string>;
   /** Optionaler Seed; sonst aus Eingabedaten abgeleitet. */
   seed?: string;
+  /**
+   * Mindestbesetzung je Takt (harte Regel) – siehe coverage.ts. Ohne Angabe
+   * bleiben die Dienste in ihren Vorlagen-Zeiten (alte Planung).
+   */
+  staffing?: StaffingConfig;
 };
 
 type DateState = {
@@ -100,6 +106,17 @@ function isWeekend(isoDate: string): boolean {
   const key = weekdayKeyOf(parseIsoDate(isoDate));
   return key === "friday" || key === "saturday";
 }
+
+/** „Cuối tuần" für die Minijob-Regel: Samstag, Sonntag und Feiertage. */
+function isWeekendLike(state: SchedulerState, isoDate: string): boolean {
+  const key = state.effKeyOf(isoDate);
+  return key === "saturday" || key === "sunday";
+}
+
+/** Weiche Regel: Minijob/Teilzeit bevorzugt am Wochenende (Score-Bonus, Stunden). */
+const MINIJOB_WEEKEND_BONUS = 40;
+/** Dasselbe im Reparaturlauf (Minuten Tages-Abweichung). */
+const MINIJOB_WEEKEND_MINUTES = 240;
 
 function weekKeyOf(isoDate: string): string {
   const date = parseIsoDate(isoDate);
@@ -409,7 +426,9 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     const dayWeight = DAY_WEIGHTS[state.effKeyOf(isoDate)];
 
     const consecutivePenalty = runLength >= 5 ? (runLength - 4) * 8 : 0;
-    const weekendPenalty = isWeekend(isoDate) ? weekendCount * 1.5 : 0;
+    // Minijob soll gern am Wochenende arbeiten: kein Ausgleichs-Malus, sondern Bonus.
+    const minijobWeekend = isMinijob(employee) && isWeekendLike(state, isoDate);
+    const weekendPenalty = isWeekend(isoDate) && !isMinijob(employee) ? weekendCount * 1.5 : 0;
 
     const jitter = state.rng() * 0.01; // deterministisch (seeded), nur Tie-Break
 
@@ -418,6 +437,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       dayWeight * 3 -
       consecutivePenalty -
       weekendPenalty +
+      (minijobWeekend ? MINIJOB_WEEKEND_BONUS : 0) +
       jitter;
 
     const transitionStart = 15 * 60 + 30;
@@ -575,6 +595,38 @@ function removeShift(state: SchedulerState, shift: Shift): void {
 }
 
 /**
+ * Darf diese Schicht (unverändert lang) auf den Tag `to` umziehen, ohne eine
+ * harte Regel zu brechen? (offen, passt ins Fenster, Schule, Eintritt/Austritt,
+ * fester Wochentag, Tage-/Stunden-Obergrenze je Woche, 6-Tage-Regel)
+ */
+function canMoveShift(state: SchedulerState, employee: Employee, shift: Shift, to: string): boolean {
+  const from = shift.date;
+  const worked = state.worked.get(employee.id)!;
+  if (to === from || worked.has(to)) return false;
+  const day = state.dayOf(to);
+  const presence = presenceFromPaid(shift.paidMinutes);
+  if (day.closed || windowLength(day) < presence) return false; // geschlossen / passt nicht
+  if (isSchoolDay(employee, to)) return false;
+  if (!isEmployeeActiveOn(employee, to)) return false;
+  if (!worksOnWeekday(employee, to)) return false; // fester freier Wochentag
+  // 6-Tage-Regel prüfen, als ob "from" bereits entfernt wäre.
+  const trial = new Set(worked);
+  trial.delete(from);
+  const workdayCap = weeklyWorkdayCap(employee);
+  if (workdayCap !== null && workedDaysInWeek(trial, weekKeyOf(to)) >= workdayCap) return false;
+  const weekCap = weeklyCapMinutes(employee);
+  if (weekCap !== null) {
+    const weekMinutes = state.weekMinutes.get(employee.id)!;
+    const usedAfterMove =
+      (weekMinutes.get(weekKeyOf(to)) ?? 0) +
+      shift.paidMinutes -
+      (weekKeyOf(from) === weekKeyOf(to) ? shift.paidMinutes : 0);
+    if (usedAfterMove > weekCap) return false;
+  }
+  return consecutiveRunLengthWith(trial, to) <= 6;
+}
+
+/**
  * Reparaturlauf: verschiebt einzelne Schichten auf andere Tage, wenn dadurch
  * die Tagesnachfrage besser getroffen wird. Ändert nie die Dauer eines Tokens
  * und verletzt nie die harten Regeln => Sollstunden bleiben exakt erhalten.
@@ -596,7 +648,6 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
 
       const oldCostFrom = dateCost(state, from);
 
-      const presence = presenceFromPaid(shift.paidMinutes);
       for (const to of state.dates) {
         if (to === from || worked.has(to)) continue;
         if (
@@ -608,33 +659,7 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         ) {
           continue;
         }
-        const day = state.dayOf(to);
-        if (day.closed || windowLength(day) < presence) continue; // geschlossen / passt nicht
-        if (isSchoolDay(employee, to)) continue;
-        if (!isEmployeeActiveOn(employee, to)) continue;
-        if (!worksOnWeekday(employee, to)) continue; // fester freier Wochentag
-        // 6-Tage-Regel prüfen, als ob "from" bereits entfernt wäre.
-        const trial = new Set(worked);
-        trial.delete(from);
-        const workdayCap = weeklyWorkdayCap(employee);
-        if (
-          workdayCap !== null &&
-          workedDaysInWeek(trial, weekKeyOf(to)) >= workdayCap
-        ) {
-          continue;
-        }
-        const weekCap = weeklyCapMinutes(employee);
-        if (weekCap !== null) {
-          const weekMinutes = state.weekMinutes.get(employee.id)!;
-          const fromWeek = weekKeyOf(from);
-          const toWeek = weekKeyOf(to);
-          const usedAfterMove =
-            (weekMinutes.get(toWeek) ?? 0) +
-            shift.paidMinutes -
-            (fromWeek === toWeek ? shift.paidMinutes : 0);
-          if (usedAfterMove > weekCap) continue;
-        }
-        if (consecutiveRunLengthWith(trial, to) > 6) continue;
+        if (!canMoveShift(state, employee, shift, to)) continue;
 
         const oldCostTo = dateCost(state, to);
         const newCostFrom = Math.abs(
@@ -643,7 +668,12 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         const newCostTo = Math.abs(
           state.dateState.get(to)!.totalPaid + shift.paidMinutes - state.rawTarget.get(to)!,
         );
-        const delta = newCostFrom + newCostTo - (oldCostFrom + oldCostTo);
+        // Minijob: ungern vom Wochenende weg, gern dorthin (weiche Regel, in Minuten).
+        const minijobShift = isMinijob(employee)
+          ? (isWeekendLike(state, from) ? MINIJOB_WEEKEND_MINUTES : 0) -
+            (isWeekendLike(state, to) ? MINIJOB_WEEKEND_MINUTES : 0)
+          : 0;
+        const delta = newCostFrom + newCostTo - (oldCostFrom + oldCostTo) + minijobShift;
         if (delta < bestDelta) {
           bestDelta = delta;
           bestTarget = to;
@@ -666,6 +696,84 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
       }
     }
     if (!improved) break;
+  }
+}
+
+/**
+ * Độ phủ: (1) jeden Tag die Dienste innerhalb der Öffnungszeit so legen, dass
+ * die Mindestbesetzung erreicht wird und die Stoßzeiten so voll wie möglich
+ * sind (retimeDay). (2) Wo ein Tag dafür zu wenige Dienste hat, einen Dienst
+ * von einem Tag mit Überschuss holen – nur wenn alle harten Regeln halten und
+ * der abgebende Tag danach selbst noch die Mindestbesetzung schafft.
+ */
+function enforceCoverage(
+  state: SchedulerState,
+  employeesById: Map<string, Employee>,
+  cfg: StaffingConfig,
+): void {
+  const prefersPeak = (shift: Shift) => isMinijob(employeesById.get(shift.employeeId));
+  const own = (date: string, except?: Shift) =>
+    state.shifts.filter((s) => s.date === date && s !== except);
+  const retime = (date: string) => {
+    const day = state.dayOf(date);
+    if (day.closed) return;
+    const before = own(date);
+    const after = retimeDay(before, day.window, cfg, prefersPeak);
+    before.forEach((s, i) => {
+      if (after[i] !== s) state.shifts[state.shifts.indexOf(s)] = after[i];
+    });
+  };
+  const missing = (date: string) => {
+    const day = state.dayOf(date);
+    return day.closed ? 0 : floorDeficit(own(date), day.window, cfg);
+  };
+  /** Anwesenheit über das Nötige hinaus (Takte) – wer viel hat, gibt ab. */
+  const surplus = (date: string) => {
+    const day = state.dayOf(date);
+    if (day.closed) return 0;
+    const capacity = own(date).reduce((sum, s) => sum + (s.endMinutes - s.startMinutes) / 30, 0);
+    let need = 0;
+    for (let t = day.window.startMinutes; t + 30 <= day.window.endMinutes; t += 30) {
+      need += Math.max(cfg.base, ...cfg.peaks.filter((p) => t >= p.startMinutes && t + 30 <= p.endMinutes).map((p) => p.min));
+    }
+    return capacity - need;
+  };
+
+  for (const date of state.dates) retime(date);
+
+  for (let guard = 0; guard < 300; guard++) {
+    const short = state.dates.filter((d) => missing(d) > 0).sort((a, b) => missing(b) - missing(a));
+    if (short.length === 0) return;
+    let moved = false;
+    for (const to of short) {
+      const before = missing(to);
+      // Minijob nur ungern vom Wochenende abziehen (weiche Regel).
+      const keepsWeekend = (s: Shift) =>
+        isMinijob(employeesById.get(s.employeeId)) && isWeekendLike(state, s.date) && !isWeekendLike(state, to);
+      const donors = [...state.shifts]
+        .filter((s) => s.date !== to)
+        .sort((a, b) => Number(keepsWeekend(a)) - Number(keepsWeekend(b)) || surplus(b.date) - surplus(a.date));
+      for (const shift of donors) {
+        const employee = employeesById.get(shift.employeeId)!;
+        if (hasPattern(employee)) continue; // feste Tage bleiben fest
+        if (!canMoveShift(state, employee, shift, to)) continue;
+        const fromDay = state.dayOf(shift.date);
+        const rest = retimeDay(own(shift.date, shift), fromDay.window, cfg, prefersPeak);
+        if (floorDeficit(rest, fromDay.window, cfg) > 0) continue; // abgebender Tag bräche
+        const toDay = state.dayOf(to);
+        const candidate = makeShift(state, employee, to, shift.paidMinutes);
+        const trial = retimeDay([...own(to), candidate], toDay.window, cfg, prefersPeak);
+        if (floorDeficit(trial, toDay.window, cfg) >= before) continue;
+        removeShift(state, shift);
+        applyShift(state, candidate);
+        retime(shift.date);
+        retime(to);
+        moved = true;
+        break;
+      }
+      if (moved) break;
+    }
+    if (!moved) return; // nicht lösbar – die Prüfung meldet die Lücke
   }
 }
 
@@ -808,6 +916,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   }
 
   repairDemand(state, employeesById);
+  if (input.staffing) enforceCoverage(state, employeesById, input.staffing);
 
   // Stabil sortieren: nach Datum, dann Startzeit, dann Mitarbeiter.
   state.shifts.sort(

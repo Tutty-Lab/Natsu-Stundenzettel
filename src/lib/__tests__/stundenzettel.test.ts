@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { AzubiTab } from "../../components/AzubiTab";
+import { EmployeeSheet } from "../../components/EmployeesTab";
 import { StundenzettelPage } from "../../components/StundenzettelPage";
 import { StundenzettelTab } from "../../components/StundenzettelTab";
 import type { UseScheduleReturn } from "../../hooks/useSchedule";
@@ -112,26 +112,14 @@ describe("Natsu/Nava Azubi settings", () => {
         weeklyHoursOutOfTerm: 35,
       },
     });
-    const schedule: Schedule = {
-      companyName: "NATSU Test",
-      address: "Teststrasse 1",
-      year: 2026,
-      month: 8,
-      workHours: DEFAULT_WORK_HOURS,
-      dateOverrides: [],
-      employees: [employee],
-      shifts: [],
-    };
-    const store = {
-      schedule,
-      updateEmployee: () => undefined,
-    } as unknown as UseScheduleReturn;
-
-    const html = renderToStaticMarkup(createElement(AzubiTab, { store }));
+    const html = renderToStaticMarkup(
+      createElement(EmployeeSheet, { employee, onClose: () => undefined, onSave: () => undefined }),
+    );
 
     expect(html).toContain("Giờ mỗi tuần của Azubi Settings");
     expect(html).toContain('value="25"');
     expect(html).toContain("tối đa 24h mỗi tuần");
+    expect(html).toContain("Ngày học · chọn 2");
     expect(html).toContain("Vượt mức tối đa 24h/tuần");
   });
 });

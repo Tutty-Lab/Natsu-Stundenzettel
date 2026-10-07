@@ -13,7 +13,7 @@ import {
 import type { DayWindow, WorkHoursConfig } from "../lib/workHours";
 import { nrwHolidayNames } from "../lib/holidays";
 import { isoLabel } from "../lib/shiftOps";
-import { STORES } from "../lib/stores";
+import { normalizeStaffing, type StaffingConfig, type StaffingPeak } from "../lib/coverage";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -154,25 +154,6 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         <h2 className="text-base font-semibold text-slate-900 mb-4">Cài đặt chung</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
-            <Field label="Cửa hàng">
-              <select
-                className={inputClass}
-                value={store.storeId}
-                onChange={(event) => store.setStoreId(event.target.value)}
-              >
-                {STORES.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-slate-500">
-                Mỗi cửa hàng có danh sách nhân viên, lịch làm việc và dữ liệu đồng bộ riêng.
-              </p>
-            </Field>
-          </div>
-
-          <div className="md:col-span-2">
             <Field label="Tên công ty / cửa hàng">
               <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 {schedule.companyName}
@@ -189,7 +170,8 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           </div>
 
           <p className="md:col-span-2 text-xs text-slate-500">
-            Chọn tháng và năm ở thanh trên cùng.
+            Cài đặt này chỉ cho quán đang chọn. Đổi quán bằng nút NATSU | nava phía trên. Chọn tháng
+            và năm ở thanh trên cùng.
           </p>
         </div>
       </section>
@@ -252,6 +234,8 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           </div>
         )}
       </section>
+
+      <StaffingSection store={store} />
 
       <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900 mb-1">Ngày đặc biệt</h2>
@@ -468,6 +452,105 @@ function PasswordSection({
 
       {fehler && <p className="mt-2 text-sm text-rose-600">{fehler}</p>}
       {fertig && <p className="mt-2 text-sm text-emerald-700">Đã đổi mật khẩu.</p>}
+    </section>
+  );
+}
+
+/**
+ * „Số người tối thiểu" – harte Regel je Filiale: immer mindestens `base` Leute,
+ * in jeder Stoßzeit mindestens `min`. Wie viele es dort sein SOLLTEN, rechnet
+ * die App selbst aus Stunden und Personen des Tages aus (siehe lib/coverage.ts).
+ */
+function StaffingSection({ store }: { store: UseScheduleReturn }) {
+  const cfg = normalizeStaffing(store.schedule.staffing, store.storeId);
+  const save = (next: StaffingConfig) => store.updateMeta({ staffing: next });
+  const setPeak = (i: number, patch: Partial<StaffingPeak>) =>
+    save({ ...cfg, peaks: cfg.peaks.map((p, k) => (k === i ? { ...p, ...patch } : p)) });
+  const num = (v: string) => Math.max(0, Math.round(Number(v) || 0));
+
+  return (
+    <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-900 mb-1">Số người tối thiểu</h2>
+      <p className="text-xs text-slate-500 mb-3">
+        Luật cứng khi tạo lịch. Số người <b>nên có</b> trong giờ cao điểm do app tự tính theo số giờ và
+        số nhân viên của từng ngày. Xem ở các dòng „ít nhất · nên" cuối bảng tháng.
+      </p>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="w-40 text-slate-700">Mọi lúc trong giờ mở cửa</span>
+          <span className="text-slate-500">ít nhất</span>
+          <input
+            type="number"
+            min={0}
+            aria-label="Số người tối thiểu mọi lúc"
+            className={`${timeClass} w-16`}
+            value={cfg.base}
+            onChange={(e) => save({ ...cfg, base: num(e.target.value) })}
+          />
+          <span className="text-slate-500">người</span>
+        </div>
+        {cfg.peaks.map((p, i) => (
+          <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
+            <input
+              aria-label="Tên giờ cao điểm"
+              className={`${timeClass} w-24`}
+              value={p.label}
+              onChange={(e) => setPeak(i, { label: e.target.value })}
+            />
+            <input
+              type="time"
+              step={1800}
+              aria-label="Từ"
+              className={timeClass}
+              value={minutesToTime(p.startMinutes)}
+              onChange={(e) => e.target.value && setPeak(i, { startMinutes: timeToMinutes(e.target.value) })}
+            />
+            <span className="text-slate-400">–</span>
+            <input
+              type="time"
+              step={1800}
+              aria-label="Đến"
+              className={timeClass}
+              value={minutesToTime(p.endMinutes)}
+              onChange={(e) => e.target.value && setPeak(i, { endMinutes: timeToMinutes(e.target.value) })}
+            />
+            <span className="text-slate-500">ít nhất</span>
+            <input
+              type="number"
+              min={0}
+              aria-label={`Số người tối thiểu ${p.label}`}
+              className={`${timeClass} w-16`}
+              value={p.min}
+              onChange={(e) => setPeak(i, { min: num(e.target.value) })}
+            />
+            <span className="text-slate-500">người</span>
+            <button
+              type="button"
+              onClick={() => save({ ...cfg, peaks: cfg.peaks.filter((_, k) => k !== i) })}
+              className="rounded px-2 py-1 text-rose-600 hover:bg-rose-50"
+              aria-label={`Xoá ${p.label}`}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            save({
+              ...cfg,
+              peaks: [...cfg.peaks, { label: "Cao điểm", startMinutes: 18 * 60, endMinutes: 20 * 60, min: cfg.base + 1 }],
+            })
+          }
+          className="rounded border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:border-slate-500"
+        >
+          + Thêm giờ cao điểm
+        </button>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        Đổi số ở đây xong, bấm „+ Tạo lịch làm việc“ để xếp lại. Minijob (bán thời gian) được ưu tiên xếp vào
+        cuối tuần và giờ cao điểm.
+      </p>
     </section>
   );
 }

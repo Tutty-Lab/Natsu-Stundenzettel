@@ -17,7 +17,13 @@ import {
   type DateOverride,
   type OverrideMap,
 } from "../lib/workHours";
-import { loadStoreId, saveStoreId, storeById, type StoreConfig } from "../lib/stores";
+import { storeById, type StoreConfig } from "../lib/stores";
+import { listSavedMonths, mergeArchives, switchMonth } from "../lib/monthArchive";
+import { coverageGaps, normalizeStaffing } from "../lib/coverage";
+import { datesOfMonth } from "../lib/demand";
+import { nrwHolidays } from "../lib/holidays";
+import { minutesToTime } from "../lib/time";
+import { resolveDay } from "../lib/workHours";
 import { defaultAzubiConfig, withAutomaticAzubiTarget } from "../lib/azubi";
 
 function emptySchedule(store: StoreConfig): Schedule {
@@ -31,6 +37,7 @@ function emptySchedule(store: StoreConfig): Schedule {
     dateOverrides: [],
     employees: [],
     shifts: [],
+    staffing: normalizeStaffing(undefined, store.id),
   };
 }
 
@@ -56,6 +63,8 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
     employees,
     shifts: raw.shifts ?? [],
+    archive: raw.archive && typeof raw.archive === "object" ? raw.archive : {},
+    staffing: normalizeStaffing(raw.staffing, store.id),
   };
 }
 
@@ -63,8 +72,12 @@ function newEmployeeId(): string {
   return `emp-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
 
-export function useSchedule() {
-  const [storeId, setStoreIdState] = useState<string>(() => loadStoreId());
+/**
+ * State EINER Filiale. Die App hält beide Filialen gleichzeitig (NATSU und
+ * nava), damit „Tạo lịch" beide auf einmal erzeugt und der Umschalter ohne
+ * Neuladen wechselt. storeId ändert sich für eine Instanz nie.
+ */
+export function useSchedule(storeId: string) {
   const storeConfig = storeById(storeId);
 
   const [schedule, setSchedule] = useState<Schedule>(() => {
@@ -72,7 +85,7 @@ export function useSchedule() {
     return normalizeSchedule(persisted?.schedule, storeById(storeId));
   });
   const [passwordHash, setPasswordHash] = useState<string | undefined>(
-    () => loadState(loadStoreId())?.passwordHash,
+    () => loadState(storeId)?.passwordHash,
   );
   const [originalShifts, setOriginalShifts] = useState<Shift[]>(() => {
     const persisted = loadState(storeId);
@@ -83,8 +96,18 @@ export function useSchedule() {
     isRemoteConfigured ? "idle" : "off",
   );
 
+  // Nach „Xoá dữ liệu" darf das Zusammenführen die alten Monate nicht zurückholen.
+  const skipArchiveMerge = useRef(false);
+
   // Save immediately to localStorage so the app remains usable offline.
+  // Vorher gespeicherte Monate aus dem LocalStorage übernehmen (anderer Tab),
+  // damit ein veralteter Tab nie einen gespeicherten Monat löscht.
   useEffect(() => {
+    const merged = mergeArchives(schedule, loadState(storeId)?.schedule);
+    if (merged !== schedule) {
+      setSchedule(merged); // speichert im nächsten Durchlauf
+      return;
+    }
     saveState(storeId, { schedule, originalShifts, passwordHash });
   }, [storeId, schedule, originalShifts]);
 
@@ -138,31 +161,21 @@ export function useSchedule() {
 
     const timer = window.setTimeout(() => {
       setRemoteStatus("saving");
-      saveRemote(storeId, { schedule, originalShifts, passwordHash })
+      (async () => {
+        // Gespeicherte Monate anderer Geräte behalten (Archiv zusammenführen).
+        const skip = skipArchiveMerge.current;
+        skipArchiveMerge.current = false;
+        const remote = skip ? null : await loadRemote(storeId).catch(() => null);
+        const merged = mergeArchives(schedule, remote?.schedule);
+        await saveRemote(storeId, { schedule: merged, originalShifts, passwordHash });
+        if (merged !== schedule) setSchedule((cur) => mergeArchives(cur, remote?.schedule));
+      })()
         .then(() => setRemoteStatus("idle"))
         .catch(() => setRemoteStatus("error"));
     }, 1000);
 
     return () => window.clearTimeout(timer);
   }, [storeId, schedule, originalShifts]);
-
-  const storeIdRef = useRef(storeId);
-  useEffect(() => {
-    storeIdRef.current = storeId;
-  }, [storeId]);
-
-  const setStoreId = useCallback((next: string) => {
-    const nextStore = storeById(next);
-    if (nextStore.id === storeIdRef.current) return;
-
-    saveStoreId(nextStore.id);
-    const cached = loadState(nextStore.id);
-    setSchedule(normalizeSchedule(cached?.schedule, nextStore));
-    setOriginalShifts(cached?.originalShifts ?? []);
-    setGenError(null);
-    setRemoteStatus(isRemoteConfigured ? "idle" : "off");
-    setStoreIdState(nextStore.id);
-  }, []);
 
   // Geprüft wird gegen das Soll, das auch der Planer ansetzt: bei „Mẫu tuần"
   // mit Wochenvertrag folgt es den Wochen des Monats (siehe effectiveTargets).
@@ -175,13 +188,48 @@ export function useSchedule() {
       employees: schedule.employees,
     });
     const employees = schedule.employees.map((e) => ({ ...e, targetMinutes: soll.get(e.id) ?? e.targetMinutes }));
-    return validateSchedule(employees, schedule.shifts);
-  }, [schedule.year, schedule.month, schedule.workHours, schedule.dateOverrides, schedule.employees, schedule.shifts]);
+    const result = validateSchedule(employees, schedule.shifts);
+    if (schedule.shifts.length === 0) return result;
+    // Harte Regel Độ phủ: zu jeder Öffnungszeit genug Leute im Laden.
+    const holidays = nrwHolidays(schedule.year);
+    const overrides = overridesToMap(schedule.dateOverrides);
+    const gaps = coverageGaps(
+      schedule.shifts,
+      datesOfMonth(schedule.year, schedule.month),
+      (d) => resolveDay(schedule.workHours, d, holidays, overrides),
+      normalizeStaffing(schedule.staffing, storeId),
+    );
+    if (gaps.length === 0) return result;
+    const errors = [
+      ...result.errors,
+      ...gaps.map((g) => ({
+        date: g.date,
+        message: `Thiếu người ngày ${g.date.slice(8, 10)}.${g.date.slice(5, 7)} ${minutesToTime(g.startMinutes)}–${minutesToTime(g.endMinutes)}: có ${g.have}, cần ${g.need}.`,
+      })),
+    ];
+    return { ...result, valid: false, errors };
+  }, [schedule.year, schedule.month, schedule.workHours, schedule.dateOverrides, schedule.employees, schedule.shifts, schedule.staffing, storeId]);
 
   // ----- Firma / Monat / Öffnungszeiten -----
   const updateMeta = useCallback((patch: Partial<Schedule>) => {
-    setSchedule((s) => ({ ...s, ...patch }));
+    const { schedule: s, originalShifts: original } = latest.current;
+    const nextYear = patch.year ?? s.year;
+    const nextMonth = patch.month ?? s.month;
+    if (nextYear === s.year && nextMonth === s.month) {
+      setSchedule((cur) => ({ ...cur, ...patch }));
+      return;
+    }
+    // Monatswechsel: aktuellen Plan ablegen, gespeicherten Plan des Zielmonats laden.
+    const next = switchMonth(s, original, nextYear, nextMonth);
+    const schedulePatched = { ...next.schedule, ...patch };
+    latest.current = { ...latest.current, schedule: schedulePatched, originalShifts: next.originalShifts };
+    setSchedule(schedulePatched);
+    setOriginalShifts(next.originalShifts);
+    setGenError(null);
   }, []);
+
+  /** Alle Monate mit gespeichertem Plan (inkl. des aktuell geöffneten). */
+  const savedMonths = useMemo(() => listSavedMonths(schedule), [schedule]);
 
   // ----- Mitarbeiter -----
   const addEmployee = useCallback((data: Omit<Employee, "id">): string => {
@@ -223,6 +271,7 @@ export function useSchedule() {
         workHours: schedule.workHours,
         overrides: overridesToMap(schedule.dateOverrides),
         employees: schedule.employees,
+        staffing: normalizeStaffing(schedule.staffing, storeId),
         // A fresh UI seed makes each click a useful alternative plan while
         // direct scheduler calls remain deterministic when no seed is given.
         seed: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -238,6 +287,8 @@ export function useSchedule() {
     schedule.workHours,
     schedule.dateOverrides,
     schedule.employees,
+    schedule.staffing,
+    storeId,
   ]);
 
   const resetToOriginal = useCallback(() => {
@@ -246,6 +297,7 @@ export function useSchedule() {
 
   const resetAll = useCallback(() => {
     clearState(storeId);
+    skipArchiveMerge.current = true;
     setSchedule(emptySchedule(storeById(storeId)));
     setOriginalShifts([]);
     setGenError(null);
@@ -368,8 +420,8 @@ export function useSchedule() {
   return {
     storeId,
     storeConfig,
-    setStoreId,
     schedule,
+    savedMonths,
     originalShifts,
     validation,
     genError,

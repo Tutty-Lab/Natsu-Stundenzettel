@@ -1,19 +1,30 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import type { AzubiConfig, Employee, EmploymentType, WeekPattern } from "../types";
+import {
+  AZUBI_HOURS_IN_TERM,
+  AZUBI_WORKDAYS_IN_TERM,
+  type AzubiConfig,
+  type Employee,
+  type EmploymentType,
+  type WeekPattern,
+} from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import {
+  AZUBI_MONTHLY_WEEKS,
+  azubiConfigOf,
   azubiMonthlyMinutes,
   azubiWeeklyHours,
+  azubiWeeklyLimit,
   defaultAzubiConfig,
 } from "../lib/azubi";
-import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
+import { WEEKDAY_LABELS_VI, WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
 import { distributeLengths, isValidPattern } from "../lib/weekPattern";
 import { employmentPeriodLabel } from "../lib/employmentPeriod";
+import { VOLLZEIT_KIEU, kieuOf, kieuText, suggestedKieu } from "../lib/vollzeitKieu";
 import { calculatePause } from "../lib/time";
 
 const inputClass =
-  "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
+  "rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
 
 const WEEKDAY_ORDER: WeekdayKey[] = [
   "monday",
@@ -32,12 +43,6 @@ const TYPE_SHORT: Record<EmploymentType, string> = {
   TEILZEIT: "BT",
   AZUBI: "Azubi",
 };
-
-/**
- * Mẫu cho đội toàn thời gian (yêu cầu của chủ quán Natsu): 40 h mỗi tuần,
- * 6 ngày, 4 ca 6,5 h + 2 ca 7 h. Mỗi ca trên 6 h có thêm 30 phút nghỉ.
- */
-const VOLLZEIT_MUSTER: WeekPattern = { days: 6, minHours: 6.5, maxHours: 7, weeklyHours: 40 };
 
 /** Độ dài ca mặc định khi bật ngày cố định, theo hình thức. */
 const STANDARD_LAENGE: Record<Exclude<EmploymentType, "AZUBI">, { min: number; max: number; weekly: string }> = {
@@ -59,25 +64,15 @@ function splitInfo(targetHours: number, type: EmploymentType): { ok: boolean; te
 
 /** „6 ngày · ca 6,5–7h · 40h/tuần · nghỉ T2" */
 function patternSummary(p: WeekPattern): string {
+  const kieu = kieuOf(p);
+  if (kieu) {
+    const rest = p.restDays?.length ? ` · nghỉ ${p.restDays.map((k) => WEEKDAY_SHORT_VI[k]).join(" ")}` : "";
+    return `${kieu.label}: ${kieuText(kieu.pattern)}${rest}`;
+  }
   const teile = [`${p.days} ngày cố định`, `ca ${fmtH(p.minHours)}–${fmtH(p.maxHours)}h`];
   if (p.weeklyHours !== undefined) teile.push(`${fmtH(p.weeklyHours)}h/tuần`);
   if (p.restDays?.length) teile.push(`nghỉ ${p.restDays.map((k) => WEEKDAY_SHORT_VI[k]).join(" ")}`);
   return teile.join(" · ");
-}
-
-/** Tóm tắt các thiết lập „Nâng cao" đang đặt (dòng dưới tiêu đề), hoặc null. */
-function advancedSummary(d: Draft): string | null {
-  const parts: string[] = [];
-  const pattern = patternFrom(d);
-  if (pattern) parts.push(patternSummary(pattern));
-  else if (d.maxDays !== "" && d.employmentType !== "AZUBI") parts.push(`tối đa ${d.maxDays} ngày/tuần`);
-  if (d.availableWeekdays.length > 0 && d.availableWeekdays.length < WEEKDAY_ORDER.length) {
-    const days = WEEKDAY_ORDER.filter((key) => d.availableWeekdays.includes(key)).map((key) => WEEKDAY_SHORT_VI[key]);
-    parts.push(`chỉ ${days.join(" ")}`);
-  }
-  const period = employmentPeriodLabel({ startDate: d.startDate || undefined, endDate: d.endDate || undefined } as Employee);
-  if (period) parts.push(period);
-  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 type Draft = {
@@ -179,7 +174,7 @@ function patternPreview(d: Draft): { ok: boolean; lines: string[] } {
     return {
       ok: true,
       lines: [
-        `Mỗi tuần ${days} ca, mỗi ca ${fmtH(min)}–${fmtH(max)}h. Giờ tháng lấy theo ô "Giờ định mức / tháng".`,
+        `Mỗi tuần ${days} ca, mỗi ca ${fmtH(min)}–${fmtH(max)}h. Giờ tháng lấy theo ô "Giờ / tháng".`,
         `Ca ${anwesend(min)}.`,
       ],
     };
@@ -202,11 +197,12 @@ function patternPreview(d: Draft): { ok: boolean; lines: string[] } {
     lines: [
       `Tuần đủ: ${sortiert.map(([h, n]) => `${n} ca ${fmtH(h)}h`).join(" + ")} = ${fmtH(weekly)}h.`,
       ...sortiert.map(([h]) => `Ca ${anwesend(h)}.`),
-      "Tuần đầu và cuối tháng tính theo số ngày làm trong tháng. Ô \"Giờ định mức / tháng\" không dùng nữa.",
+      "Tuần đầu và cuối tháng tính theo số ngày làm trong tháng. Ô \"Giờ / tháng\" không dùng nữa.",
     ],
   };
 }
 
+/** Tab Nhân viên – Azubi-Einstellungen stecken direkt im Formular der Person (wie Thiên Long). */
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, addEmployee, updateEmployee, removeEmployee } = store;
 
@@ -216,14 +212,17 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
       ? schedule.employees.find((e) => e.id === offen)
       : undefined;
 
-  // Vollzeit ohne feste Woche: ein Klick setzt für alle das Muster des Chefs.
+  // Vollzeit ohne feste Woche: einen Kiểu (oder „theo cài đặt cũ") für alle setzen.
   const ohneMuster = schedule.employees.filter((e) => e.employmentType === "VOLLZEIT" && !e.weekPattern);
-  const [musterFrage, setMusterFrage] = useState(false);
+  const vorschlag1 = ohneMuster.filter((e) => suggestedKieu(e).id === 1).length;
+  const gemischt = vorschlag1 > 0 && vorschlag1 < ohneMuster.length;
+  const [musterWahl, setMusterWahl] = useState<string>(() => (gemischt ? "auto" : "2"));
   const musterFuerAlle = () => {
     for (const e of ohneMuster) {
-      updateEmployee(e.id, { weekPattern: { ...VOLLZEIT_MUSTER }, maxDaysPerWeek: undefined });
+      const kieu =
+        musterWahl === "auto" ? suggestedKieu(e) : VOLLZEIT_KIEU.find((k) => String(k.id) === musterWahl)!;
+      updateEmployee(e.id, { weekPattern: { ...kieu.pattern }, maxDaysPerWeek: undefined });
     }
-    setMusterFrage(false);
   };
 
   return (
@@ -245,39 +244,37 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         </button>
       </div>
       <p className="text-xs text-slate-500 mb-4">
-        Bấm vào một người để sửa. Học nghề (Azubi): sửa giờ ở tab <b>Azubi</b>.
+        Bấm vào một người để sửa. Azubi: kỳ học, giờ mỗi tuần và ngày học cài ngay trong đó.
       </p>
 
       {ohneMuster.length > 0 && (
         <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
-          <div>
-            {ohneMuster.length} người toàn thời gian chưa có lịch tuần cố định. Mẫu của quán:{" "}
-            <b>6 ngày/tuần, 4 ca 6,5h + 2 ca 7h = 40h</b>. Mỗi ca nghỉ 30 phút.
-          </div>
-          {musterFrage ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span>Áp dụng cho {ohneMuster.length} người này?</span>
-              <button
-                onClick={musterFuerAlle}
-                className="rounded bg-indigo-700 px-3 py-1 text-sm font-medium text-white hover:bg-indigo-800"
-              >
-                Áp dụng
-              </button>
-              <button
-                onClick={() => setMusterFrage(false)}
-                className="rounded px-3 py-1 text-sm text-indigo-800 hover:bg-indigo-100"
-              >
-                Huỷ
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setMusterFrage(true)}
-              className="mt-2 rounded border border-indigo-300 bg-white px-3 py-1 text-sm font-medium text-indigo-800 hover:bg-indigo-100"
+          <div>{ohneMuster.length} người toàn thời gian chưa có kiểu xếp ca. Chọn một kiểu cho tất cả:</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Kiểu xếp ca cho cả đội"
+              value={musterWahl}
+              onChange={(e) => setMusterWahl(e.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-slate-900"
             >
-              Áp dụng mẫu cho cả đội toàn thời gian
+              {gemischt && (
+                <option value="auto">
+                  Theo cài đặt cũ: {vorschlag1} người tối đa 5 ngày → Kiểu 1, {ohneMuster.length - vorschlag1} người → Kiểu 2
+                </option>
+              )}
+              {VOLLZEIT_KIEU.map((k) => (
+                <option key={k.id} value={String(k.id)}>
+                  {k.label} · {kieuText(k.pattern)}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={musterFuerAlle}
+              className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800"
+            >
+              Áp dụng
             </button>
-          )}
+          </div>
         </div>
       )}
 
@@ -337,8 +334,16 @@ function EmployeeSummaryRow({ emp }: { emp: Employee }) {
   const isAzubi = emp.employmentType === "AZUBI";
   const stunden = emp.targetMinutes / 60;
   const wochenVertrag = emp.weekPattern?.weeklyHours;
-  const info = isAzubi
-    ? { ok: true, text: `${azubiWeeklyHours(emp.azubi)}h/tuần · tab Azubi` }
+  const azubi = isAzubi ? azubiConfigOf(emp.azubi) : null;
+  const info = azubi
+    ? {
+        ok: true,
+        text: `${fmtH(azubiWeeklyHours(azubi))}h/tuần · ${
+          azubi.inSchoolTerm
+            ? `kỳ học, học ${azubi.schoolDays.map((k) => WEEKDAY_SHORT_VI[k]).join(" ") || "—"}`
+            : "ngoài kỳ học"
+        }`,
+      }
     : wochenVertrag !== undefined
       ? { ok: true, text: `${fmtH(wochenVertrag)}h/tuần` }
       : splitInfo(stunden, emp.employmentType);
@@ -357,24 +362,161 @@ function EmployeeSummaryRow({ emp }: { emp: Employee }) {
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
         <span>
-          {!isAzubi && wochenVertrag === undefined && `${stunden}h/tháng · `}
+          {!isAzubi && wochenVertrag === undefined && `${stunden}h · `}
           <span className={info.ok ? "" : "text-rose-600"}>{info.text}</span>
         </span>
         {emp.weekPattern ? (
-          <span className="text-indigo-600">· {patternSummary(emp.weekPattern)}</span>
+          <span className="text-teal-700">· {patternSummary(emp.weekPattern)}</span>
         ) : emp.maxDaysPerWeek ? (
           <span className="text-slate-400">· tối đa {emp.maxDaysPerWeek} ngày/tuần</span>
         ) : null}
         {tage && tage.length > 0 && (
           <span className="text-slate-400">· chỉ {tage.map((k) => WEEKDAY_SHORT_VI[k]).join(" ")}</span>
         )}
-        {zeitraum && <span className="text-amber-700">· {zeitraum}</span>}
+        {zeitraum && <span className="text-violet-700">· {zeitraum}</span>}
       </div>
     </div>
   );
 }
 
-function EmployeeSheet({
+// ---- Formular (Popup, Aufbau wie Thiên Long) ------------------------------
+
+/** Große Tipp-Ziele statt Dropdowns (Hình thức). */
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div
+      className="grid gap-1 rounded-lg bg-slate-100 p-1"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+    >
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-md px-2 py-2.5 text-sm font-medium transition-colors ${
+            value === o.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FieldLabel({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
+  return (
+    <div className="mb-1 flex items-baseline justify-between gap-2">
+      <span className="text-xs font-medium text-slate-600">{children}</span>
+      {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+    </div>
+  );
+}
+
+/** Zahlenfeld mit Ziffern-Tastatur und Einheit rechts. */
+function HoursInput({
+  value,
+  onChange,
+  placeholder,
+  unit = "h",
+  warn,
+  decimal,
+  label,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  unit?: string;
+  warn?: boolean;
+  decimal?: boolean;
+  label?: string;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type="number"
+        inputMode={decimal ? "decimal" : "numeric"}
+        enterKeyHint="done"
+        min={0}
+        step={decimal ? 0.5 : 1}
+        placeholder={placeholder}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        className={`${inputClass} w-full pr-10 tabular-nums ${warn ? "border-amber-400 text-amber-900" : ""}`}
+      />
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+        {unit}
+      </span>
+    </div>
+  );
+}
+
+function SheetSection({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{title}</h4>
+        {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Sieben Tage-Knöpfe T2…CN in einer Reihe. */
+function WeekdayPicker({
+  isOn,
+  onToggle,
+  isDisabled,
+  onClass = "border-slate-900 bg-slate-900 text-white",
+  offClass = "border-slate-200 bg-white text-slate-600",
+  label,
+}: {
+  isOn: (key: WeekdayKey) => boolean;
+  onToggle: (key: WeekdayKey) => void;
+  isDisabled?: (key: WeekdayKey) => boolean;
+  onClass?: string;
+  offClass?: string;
+  label: string;
+}) {
+  return (
+    <div className="grid grid-cols-7 gap-1" role="group" aria-label={label}>
+      {WEEKDAY_ORDER.map((key) => {
+        const on = isOn(key);
+        return (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={on}
+            title={WEEKDAY_LABELS_VI[key]}
+            disabled={isDisabled?.(key)}
+            onClick={() => onToggle(key)}
+            className={`rounded-md border py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              on ? onClass : offClass
+            }`}
+          >
+            {WEEKDAY_SHORT_VI[key]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const SCHOOL_DAYS_REQUIRED = 2;
+
+export function EmployeeSheet({
   employee,
   onClose,
   onSave,
@@ -387,6 +529,7 @@ function EmployeeSheet({
 }) {
   const [d, setD] = useState<Draft>(() => draftFrom(employee));
   const [loeschFrage, setLoeschFrage] = useState(false);
+  const [showPeriod, setShowPeriod] = useState(() => !!(employee?.startDate || employee?.endDate));
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((prev) => ({ ...prev, [k]: v }));
 
@@ -396,15 +539,33 @@ function EmployeeSheet({
   const wochenVertrag = festeTage && d.pWeekly.trim() !== "";
   const info = splitInfo(stunden, d.employmentType);
   const tooMany = !isAzubi && !wochenVertrag && stunden > WARN_HOURS;
-  const zeitraumFehler = d.startDate && d.endDate && d.endDate < d.startDate;
+  const zeitraumFehler = !!(d.startDate && d.endDate && d.endDate < d.startDate);
+
+  // ---- Azubi (früher eigener Tab) ----
+  const azubi = azubiConfigOf(d.azubi);
+  const setAzubi = (patch: Partial<AzubiConfig>) =>
+    setD((prev) => ({ ...prev, azubi: { ...azubiConfigOf(prev.azubi), ...patch } }));
+  const azubiWeekly = azubiWeeklyHours(azubi);
+  const azubiLimit = azubiWeeklyLimit(azubi);
+  const setAzubiWeekly = (raw: string) => {
+    const normalized = Math.max(0, Math.round((Number(raw) || 0) * 2) / 2);
+    setAzubi(azubi.inSchoolTerm ? { weeklyHoursInTerm: normalized } : { weeklyHoursOutOfTerm: normalized });
+  };
+  const toggleSchoolDay = (key: WeekdayKey) => {
+    const selected = azubi.schoolDays.includes(key);
+    if (!selected && azubi.schoolDays.length >= SCHOOL_DAYS_REQUIRED) return;
+    setAzubi({ schoolDays: selected ? azubi.schoolDays.filter((k) => k !== key) : [...azubi.schoolDays, key] });
+  };
+  const azubiProblems: string[] = [];
+  if (isAzubi && azubiWeekly > azubiLimit) azubiProblems.push(`Vượt mức tối đa ${fmtH(azubiLimit)}h/tuần.`);
+  if (isAzubi && azubi.inSchoolTerm && azubi.schoolDays.length !== SCHOOL_DAYS_REQUIRED) {
+    azubiProblems.push("Chọn đúng 2 ngày học.");
+  }
 
   const alleTage = d.availableWeekdays.length === 0;
   const toggleWeekday = (key: WeekdayKey) => {
     const basis = alleTage ? WEEKDAY_ORDER : d.availableWeekdays;
-    set(
-      "availableWeekdays",
-      basis.includes(key) ? basis.filter((k) => k !== key) : [...basis, key],
-    );
+    set("availableWeekdays", basis.includes(key) ? basis.filter((k) => k !== key) : [...basis, key]);
   };
 
   // Feste Tage eintragen: beim ersten Mal die übliche Länge der Anstellungsart
@@ -421,25 +582,21 @@ function EmployeeSheet({
       return next;
     });
   };
-  const musterUebernehmen = () =>
+  const musterUebernehmen = (p: WeekPattern) =>
     setD((prev) => ({
       ...prev,
-      pDays: String(VOLLZEIT_MUSTER.days),
-      pMin: String(VOLLZEIT_MUSTER.minHours),
-      pMax: String(VOLLZEIT_MUSTER.maxHours),
-      pWeekly: String(VOLLZEIT_MUSTER.weeklyHours),
+      pDays: String(p.days),
+      pMin: String(p.minHours),
+      pMax: String(p.maxHours),
+      pWeekly: String(p.weeklyHours),
       pRest: [],
     }));
+  const aktiverKieu = d.employmentType === "VOLLZEIT" ? kieuOf(patternFrom(d)) : undefined;
   const toggleRest = (key: WeekdayKey) =>
     set("pRest", d.pRest.includes(key) ? d.pRest.filter((k) => k !== key) : [...d.pRest, key]);
   const vorschau = festeTage ? patternPreview(d) : null;
   const ruheSoll = 7 - Math.round(Number(d.pDays) || 0);
-  const speicherbar = !zeitraumFehler && (!vorschau || vorschau.ok);
-  const zusammenfassung = zeitraumFehler
-    ? "Ngày thôi làm phải sau ngày vào làm."
-    : vorschau && !vorschau.ok
-      ? `Lịch tuần: ${vorschau.lines[0]}`
-      : advancedSummary(d);
+  const speicherbar = !zeitraumFehler && (!vorschau || vorschau.ok) && d.name.trim().length > 0;
 
   return (
     <div
@@ -450,249 +607,167 @@ function EmployeeSheet({
         className="popup-card w-full max-w-md rounded-xl bg-white shadow-xl border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-900">
-            {employee ? "Sửa nhân viên" : "Thêm nhân viên"}
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none" aria-label="Đóng">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+          <h3 className="font-semibold text-slate-900">{employee ? "Sửa nhân viên" : "Thêm nhân viên"}</h3>
+          <button
+            onClick={onClose}
+            aria-label="Đóng"
+            className="-mr-2 h-10 w-10 rounded-full text-xl leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
             ✕
           </button>
         </div>
 
-        <div className="px-4 py-3 space-y-4">
-          <div className="space-y-3">
+        <div className="px-4 py-4 space-y-6">
+          <SheetSection title="Thông tin">
             <label className="block">
-              <span className="text-xs text-slate-600">Tên</span>
+              <FieldLabel>Tên</FieldLabel>
               <input
                 autoFocus={!employee}
-                className={`${inputClass} w-full mt-1`}
+                autoCapitalize="words"
+                autoComplete="off"
+                enterKeyHint="next"
+                className={`${inputClass} w-full`}
                 value={d.name}
                 onChange={(e) => set("name", e.target.value)}
                 placeholder="Tên nhân viên"
               />
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-xs text-slate-600">Hình thức</span>
-                <select
-                  className={`${inputClass} w-full mt-1`}
-                  value={d.employmentType}
-                  onChange={(e) => set("employmentType", e.target.value as EmploymentType)}
-                >
-                  <option value="VOLLZEIT">Toàn thời gian</option>
-                  <option value="TEILZEIT">Bán thời gian</option>
-                  <option value="AZUBI">Học nghề (Azubi)</option>
-                </select>
-              </label>
-              {isAzubi ? (
-                <div className="block">
-                  <span className="text-xs text-slate-600">Giờ</span>
-                  <div className="mt-1 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-600">
-                    {azubiWeeklyHours(d.azubi)}h/tuần · tab Azubi
-                  </div>
-                </div>
-              ) : wochenVertrag ? (
-                <div className="block">
-                  <span className="text-xs text-slate-600">Giờ hợp đồng</span>
-                  <div className="mt-1 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-600">
-                    {fmtH(Number(d.pWeekly) || 0)}h/tuần
-                  </div>
-                </div>
-              ) : (
-                <label className="block">
-                  <span className="text-xs text-slate-600">Giờ định mức / tháng</span>
+            <div>
+              <FieldLabel>Hình thức</FieldLabel>
+              <Segmented<EmploymentType>
+                value={d.employmentType}
+                onChange={(v) => set("employmentType", v)}
+                options={[
+                  { value: "VOLLZEIT", label: "Toàn TG" },
+                  { value: "TEILZEIT", label: "Bán TG" },
+                  { value: "AZUBI", label: "Azubi" },
+                ]}
+              />
+            </div>
+          </SheetSection>
+
+          <SheetSection title="Giờ làm">
+            {isAzubi ? (
+              <>
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+                  <span className="text-sm text-slate-700">
+                    Đang trong kỳ học
+                    <span className="block text-xs text-slate-400">
+                      Kỳ học: tối đa {AZUBI_HOURS_IN_TERM}h/tuần, {AZUBI_WORKDAYS_IN_TERM} ngày làm, 2 ngày học.
+                    </span>
+                  </span>
                   <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    step={1}
-                    className={`${inputClass} w-full mt-1`}
-                    value={d.hours}
-                    onChange={(e) => set("hours", e.target.value)}
+                    type="checkbox"
+                    checked={azubi.inSchoolTerm}
+                    onChange={(e) => setAzubi({ inSchoolTerm: e.target.checked })}
+                    className="h-6 w-6 rounded border-slate-300"
                   />
                 </label>
-              )}
-            </div>
-            {!isAzubi && !wochenVertrag && (
-              <div className={`text-xs ${info.ok ? "text-slate-500" : "text-rose-600"}`}>
-                {info.text}
-                {tooMany && (
-                  <span className="text-amber-600 font-medium"> · ⚠ &gt;{WARN_HOURS}h/tháng</span>
-                )}
+                <div>
+                  <FieldLabel hint={`tối đa ${fmtH(azubiLimit)}h mỗi tuần`}>Giờ / tuần</FieldLabel>
+                  <HoursInput
+                    decimal
+                    label={`Giờ mỗi tuần của ${d.name.trim() || "Azubi"}`}
+                    value={String(azubiWeekly)}
+                    onChange={setAzubiWeekly}
+                    warn={azubiWeekly > azubiLimit}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Giờ tháng = giờ tuần × {AZUBI_MONTHLY_WEEKS} = {fmtH(azubiWeekly * AZUBI_MONTHLY_WEEKS)}h.
+                  </p>
+                </div>
+              </>
+            ) : wochenVertrag ? (
+              <div>
+                <FieldLabel hint="giờ tháng tính theo tuần">Giờ hợp đồng</FieldLabel>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+                  {fmtH(Number(d.pWeekly) || 0)}h/tuần
+                </div>
+              </div>
+            ) : (
+              <div>
+                <FieldLabel hint={info.ok ? info.text : undefined}>Giờ / tháng</FieldLabel>
+                <HoursInput value={d.hours} onChange={(v) => set("hours", v)} warn={tooMany} />
+                {!info.ok && <p className="mt-1 text-xs text-rose-600">{info.text}</p>}
+                {tooMany && <p className="mt-1 text-xs text-amber-700">⚠ trên {WARN_HOURS}h/tháng</p>}
               </div>
             )}
-          </div>
 
-          {/*
-            „Nâng cao" wie bei Shin Coco: selten geändert, deshalb eingeklappt.
-            Die Zusammenfassung in der Kopfzeile zeigt, was gesetzt ist – so
-            bleibt keine Einschränkung unsichtbar. Bei einem Fehler (Datum,
-            Mẫu tuần) wird die Zeile rot und „Lưu" ist gesperrt.
-          */}
-          <details className="group rounded-lg border border-slate-200">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
-              <span>
-                Nâng cao
-                {zusammenfassung && (
-                  <span className={`block text-xs font-normal ${speicherbar ? "text-slate-500" : "text-rose-600"}`}>
-                    {zusammenfassung}
-                  </span>
-                )}
-              </span>
-              <span className="text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
-            </summary>
-            <div className="space-y-4 border-t border-slate-100 px-3 pb-3 pt-3">
-          {/* ---- Thời gian làm việc ---- */}
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-xs text-slate-600">Ngày vào làm</span>
-                <input
-                  type="date"
-                  className={`${inputClass} w-full mt-1`}
-                  value={d.startDate}
-                  onChange={(e) => set("startDate", e.target.value)}
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-slate-600">Ngày thôi làm</span>
-                <input
-                  type="date"
-                  className={`${inputClass} w-full mt-1`}
-                  value={d.endDate}
-                  onChange={(e) => set("endDate", e.target.value)}
-                />
-              </label>
-            </div>
-            <p className={`text-xs ${zeitraumFehler ? "text-rose-600" : "text-slate-500"}`}>
-              {zeitraumFehler
-                ? "Ngày thôi làm phải sau ngày vào làm."
-                : "Để trống nếu không có. Tháng có ngày vào hoặc thôi làm thì giờ tính theo số ngày đi làm."}
-            </p>
-          </div>
-
-          {/* ---- Lịch tuần ---- */}
-          <div className="space-y-3 border-t border-slate-100 pt-3">
-            <div>
-              <div className="text-xs text-slate-600 mb-1.5">
-                Ngày làm được trong tuần
-                {alleTage && <span className="text-slate-400"> — để trống = làm mọi ngày</span>}
+            {d.employmentType === "VOLLZEIT" && (
+              <div>
+                <FieldLabel hint="chọn sẵn số ngày và độ dài ca">Kiểu xếp ca</FieldLabel>
+                <select
+                  aria-label="Kiểu xếp ca toàn thời gian"
+                  className={`${inputClass} w-full`}
+                  value={aktiverKieu ? String(aktiverKieu.id) : festeTage ? "custom" : ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "") setFesteTage("");
+                    else if (v === "custom") setFesteTage(d.pDays || "5");
+                    else musterUebernehmen(VOLLZEIT_KIEU.find((k) => String(k.id) === v)!.pattern);
+                  }}
+                >
+                  <option value="">Không cố định – app xếp theo giờ tháng</option>
+                  {VOLLZEIT_KIEU.map((k) => (
+                    <option key={k.id} value={String(k.id)}>
+                      {k.label} · {kieuText(k.pattern)}
+                    </option>
+                  ))}
+                  <option value="custom">Tự chỉnh (số ngày và độ dài ca bên dưới)</option>
+                </select>
               </div>
-              <div className="flex flex-wrap gap-1">
-                {WEEKDAY_ORDER.map((key) => {
-                  const an = alleTage || d.availableWeekdays.includes(key);
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => toggleWeekday(key)}
-                      className={`rounded px-2 py-1 text-xs border transition-colors ${
-                        an
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-400 border-slate-200 line-through"
-                      }`}
-                    >
-                      {WEEKDAY_SHORT_VI[key]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            )}
 
             {!isAzubi && (
               <div>
-                <label className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                  Số ngày làm cố định mỗi tuần
-                  <input
-                    type="number"
-                    min={1}
-                    max={6}
-                    placeholder="—"
-                    className={`${inputClass} w-16`}
-                    value={d.pDays}
-                    onChange={(e) => setFesteTage(e.target.value)}
-                  />
-                  <span className="text-slate-400">để trống = app tự chọn ngày</span>
-                </label>
-                {d.employmentType === "VOLLZEIT" && (
-                  <button
-                    type="button"
-                    onClick={musterUebernehmen}
-                    className="mt-2 rounded border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
-                  >
-                    Dùng mẫu toàn thời gian: 6 ngày, 4 ca 6,5h + 2 ca 7h = 40h
-                  </button>
-                )}
+                <FieldLabel hint="Tự = app tự chọn ngày">Số ngày làm cố định / tuần</FieldLabel>
+                <div className="grid grid-cols-7 gap-1">
+                  {["", "1", "2", "3", "4", "5", "6"].map((n) => (
+                    <button
+                      key={n || "auto"}
+                      type="button"
+                      aria-pressed={d.pDays === n}
+                      onClick={() => setFesteTage(n)}
+                      className={`rounded-md border py-2.5 text-sm font-medium ${
+                        d.pDays === n
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-200 bg-white text-slate-600"
+                      }`}
+                    >
+                      {n || "Tự"}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
             {festeTage && (
-              <div className="space-y-3 rounded-lg bg-slate-50 p-3">
-                <div className="grid grid-cols-3 gap-2">
-                  <label className="block">
-                    <span className="text-[11px] text-slate-600">Ca từ (giờ)</span>
-                    <input
-                      type="number" min={3} max={8} step={0.5} inputMode="decimal"
-                      className={`${inputClass} mt-0.5 w-full`}
-                      value={d.pMin}
-                      onChange={(e) => set("pMin", e.target.value)}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-[11px] text-slate-600">đến (giờ)</span>
-                    <input
-                      type="number" min={3} max={8} step={0.5} inputMode="decimal"
-                      className={`${inputClass} mt-0.5 w-full`}
-                      value={d.pMax}
-                      onChange={(e) => set("pMax", e.target.value)}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-[11px] text-slate-600">Giờ/tuần (HĐ)</span>
-                    <input
-                      type="number" min={1} max={48} step={0.5} inputMode="decimal" placeholder="—"
-                      className={`${inputClass} mt-0.5 w-full`}
-                      value={d.pWeekly}
-                      onChange={(e) => set("pWeekly", e.target.value)}
-                    />
-                  </label>
-                </div>
-
+              <>
                 <div>
-                  <div className="text-[11px] text-slate-600 mb-1">
-                    Ngày nghỉ cố định
-                    <span className="text-slate-400">
-                      {" "}
-                      — {d.pRest.length === 0 ? "để trống = app chia so le vào ngày vắng" : `chọn đúng ${ruheSoll} ngày`}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {WEEKDAY_ORDER.map((key) => {
-                      const an = d.pRest.includes(key);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => toggleRest(key)}
-                          className={`rounded px-2 py-1 text-xs border transition-colors ${
-                            an ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-500 border-slate-200"
-                          }`}
-                        >
-                          {WEEKDAY_SHORT_VI[key]}
-                        </button>
-                      );
-                    })}
+                  <FieldLabel hint="bước 0,5h, tối đa 8h">Độ dài ca</FieldLabel>
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                    <HoursInput decimal placeholder="từ" value={d.pMin} onChange={(v) => set("pMin", v)} />
+                    <span className="text-slate-400">–</span>
+                    <HoursInput decimal placeholder="đến" value={d.pMax} onChange={(v) => set("pMax", v)} />
                   </div>
                 </div>
-
+                <div>
+                  <FieldLabel hint="bỏ trống = theo giờ tháng">Giờ / tuần (hợp đồng)</FieldLabel>
+                  <HoursInput decimal placeholder="—" value={d.pWeekly} onChange={(v) => set("pWeekly", v)} />
+                </div>
                 {vorschau && (
-                  <ul className={`space-y-0.5 text-xs ${vorschau.ok ? "text-indigo-800" : "text-rose-600"}`}>
+                  <ul
+                    className={`space-y-0.5 rounded-lg px-3 py-2 text-xs ${
+                      vorschau.ok ? "bg-indigo-50 text-indigo-800" : "bg-rose-50 text-rose-700"
+                    }`}
+                  >
                     {vorschau.lines.map((line) => (
                       <li key={line}>{line}</li>
                     ))}
                   </ul>
                 )}
-              </div>
+              </>
             )}
 
             {!festeTage && !isAzubi && d.maxDays !== "" && (
@@ -707,57 +782,141 @@ function EmployeeSheet({
                 </button>
               </div>
             )}
-          </div>
-            </div>
-          </details>
+          </SheetSection>
+
+          {festeTage && (
+            <SheetSection
+              title={`Ngày nghỉ cố định · chọn ${ruheSoll}`}
+              hint={d.pRest.length === 0 ? "bỏ trống = app tự chia" : undefined}
+            >
+              <WeekdayPicker
+                label="Ngày nghỉ cố định"
+                isOn={(key) => d.pRest.includes(key)}
+                onToggle={toggleRest}
+                isDisabled={(key) => !d.pRest.includes(key) && d.pRest.length >= ruheSoll}
+                onClass="border-amber-500 bg-amber-500 text-white"
+              />
+              {d.pRest.length > 0 && d.pRest.length !== ruheSoll && (
+                <p className="text-xs text-amber-700">
+                  Đã chọn {d.pRest.length}/{ruheSoll} ngày.
+                </p>
+              )}
+            </SheetSection>
+          )}
+
+          {isAzubi && azubi.inSchoolTerm && (
+            <SheetSection title="Ngày học · chọn 2" hint="không xếp ca vào ngày học">
+              <WeekdayPicker
+                label="Ngày học"
+                isOn={(key) => azubi.schoolDays.includes(key)}
+                onToggle={toggleSchoolDay}
+                isDisabled={(key) =>
+                  !azubi.schoolDays.includes(key) && azubi.schoolDays.length >= SCHOOL_DAYS_REQUIRED
+                }
+              />
+            </SheetSection>
+          )}
+
+          {azubiProblems.length > 0 && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800" role="alert">
+              {azubiProblems.join(" ")} Sửa trước khi tạo lịch.
+            </p>
+          )}
+
+          <SheetSection title="Ngày làm được" hint="sáng hết = làm mọi ngày">
+            <WeekdayPicker
+              label="Ngày làm được trong tuần"
+              isOn={(key) => alleTage || d.availableWeekdays.includes(key)}
+              onToggle={toggleWeekday}
+              offClass="border-slate-200 bg-white text-slate-400 line-through"
+            />
+          </SheetSection>
+
+          <SheetSection title="Thời gian làm việc">
+            {!showPeriod ? (
+              <button
+                type="button"
+                onClick={() => setShowPeriod(true)}
+                className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-left text-sm text-slate-600"
+              >
+                + Ngày vào làm / thôi làm <span className="text-slate-400">(nếu không làm cả tháng)</span>
+              </button>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <FieldLabel>Ngày vào làm</FieldLabel>
+                    <input
+                      type="date"
+                      className={`${inputClass} w-full`}
+                      value={d.startDate}
+                      max={d.endDate || undefined}
+                      onChange={(e) => set("startDate", e.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <FieldLabel>Ngày thôi làm</FieldLabel>
+                    <input
+                      type="date"
+                      className={`${inputClass} w-full`}
+                      value={d.endDate}
+                      min={d.startDate || undefined}
+                      onChange={(e) => set("endDate", e.target.value)}
+                    />
+                  </label>
+                </div>
+                <p className={`text-xs ${zeitraumFehler ? "text-rose-600" : "text-slate-500"}`}>
+                  {zeitraumFehler
+                    ? "Ngày thôi làm phải sau ngày vào làm."
+                    : "Để trống nếu không có. Tháng có ngày vào hoặc thôi làm thì giờ tính theo số ngày đi làm."}
+                </p>
+              </>
+            )}
+          </SheetSection>
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3">
+        <div className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {loeschFrage ? (
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-slate-600">Xoá nhân viên này?</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setLoeschFrage(false)}
-                  className="rounded px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+                  className="rounded-lg px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100"
                 >
                   Không
                 </button>
                 <button
                   onClick={onDelete}
-                  className="rounded bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700"
+                  className="rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-700"
                 >
                   Xoá
                 </button>
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between gap-3">
-              {onDelete ? (
+            <div className="flex items-center gap-2">
+              {onDelete && (
                 <button
                   onClick={() => setLoeschFrage(true)}
-                  className="text-rose-600 hover:text-rose-800 text-sm font-medium"
+                  className="rounded-lg px-3 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50"
                 >
                   Xoá
                 </button>
-              ) : (
-                <span />
               )}
-              <div className="flex gap-2">
-                <button
-                  onClick={onClose}
-                  className="rounded px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-                >
-                  Huỷ
-                </button>
-                <button
-                  onClick={() => onSave(draftToEmployee(d))}
-                  disabled={!speicherbar}
-                  className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
-                >
-                  Lưu
-                </button>
-              </div>
+              <button
+                onClick={onClose}
+                className="ml-auto rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Huỷ
+              </button>
+              <button
+                onClick={() => onSave(draftToEmployee(d))}
+                disabled={!speicherbar}
+                className="rounded-lg bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+              >
+                Lưu
+              </button>
             </div>
           )}
         </div>

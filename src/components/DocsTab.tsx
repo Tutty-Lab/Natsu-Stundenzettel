@@ -3,6 +3,7 @@
 // một việc, câu mệnh lệnh cho thao tác, thể chủ động, một từ cho một khái niệm
 // (xem bảng Thuật ngữ). Cảnh báo đặt TRƯỚC bước thao tác liên quan.
 
+import { VOLLZEIT_KIEU, kieuText } from "../lib/vollzeitKieu";
 import {
   DAY_WEIGHTS,
   LATE_SHIFT_RATIOS,
@@ -149,21 +150,31 @@ export function DocsTab() {
       </Section>
 
       <Section id="hang-thang" title="2. Quy trình mỗi tháng">
+        <p>
+          Ứng dụng có 2 quán: NATSU và nava. Mỗi quán có nhân viên, cài đặt và lịch riêng. Bấm nút
+          NATSU hoặc nava phía dưới các tab để đổi quán. Tháng và năm dùng chung cho cả 2 quán.
+        </p>
         <Caution>
-          Nút „Tạo lịch làm việc“ thay toàn bộ lịch của tháng. Các ca bạn sửa tay sẽ mất. Tạo lịch
-          trước, sau đó mới sửa tay.
+          Nút „+ Tạo lịch làm việc“ thay toàn bộ lịch của tháng ở cả 2 quán. Các ca bạn sửa tay sẽ mất.
+          Tạo lịch trước, sau đó mới sửa tay.
         </Caution>
         <Steps>
-          <li>Chọn tháng và năm ở thanh trên cùng.</li>
-          <li>Mở tab Cài đặt. Kiểm tra giờ mở cửa và ngày đặc biệt.</li>
-          <li>Mở tab Nhân viên. Kiểm tra định mức, ngày vào làm và ngày thôi làm.</li>
-          <li>Mở tab Azubi. Kiểm tra kỳ học, giờ mỗi tuần và ngày học.</li>
-          <li>Mở tab Lịch làm việc. Bấm „Tạo lịch làm việc“.</li>
-          <li>Kiểm tra ô „Trạng thái kiểm tra“. Ô này phải ghi „Hợp lệ“.</li>
+          <li>Chọn tháng và năm ở dòng thứ hai của thanh trên cùng.</li>
+          <li>Với mỗi quán: mở tab Cài đặt. Kiểm tra giờ mở cửa và ngày đặc biệt.</li>
+          <li>Với mỗi quán: mở tab Nhân viên. Kiểm tra định mức, ngày vào làm và ngày thôi làm.</li>
+          <li>Với Azubi: mở người đó trong tab Nhân viên. Kiểm tra kỳ học, giờ mỗi tuần và ngày học.</li>
+          <li>Bấm nút xanh „+ Tạo lịch làm việc“. Ứng dụng tạo lịch cho cả 2 quán.</li>
+          <li>Kiểm tra nút NATSU và nava. Cả hai phải ghi „✓ hợp lệ“.</li>
           <li>Sửa tay các ca cần đổi.</li>
           <li>Mở tab Bảng chấm công. In lịch tuần và bảng chấm công.</li>
         </Steps>
-        <Note>Mỗi lần bấm „Tạo lịch làm việc“, ứng dụng cho một lịch khác. Mọi lịch đều đúng định mức.</Note>
+        <Note>Mỗi lần bấm „+ Tạo lịch làm việc“, ứng dụng cho một lịch khác. Mọi lịch đều đúng định mức.</Note>
+        <p className="font-medium text-slate-900 pt-1">Lịch đã lưu:</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>Khi bạn đổi sang tháng khác, ứng dụng tự lưu lịch của tháng đang mở.</li>
+          <li>Bấm „Lịch đã lưu“ cạnh nút xanh „+ Tạo lịch làm việc“. Danh sách cho thấy số ca của cả 2 quán trong mỗi tháng.</li>
+          <li>Bấm „Mở“ để mở lại một tháng. Cả 2 quán cùng chuyển sang tháng đó.</li>
+        </ul>
       </Section>
 
       <Section id="nhan-vien" title="3. Nhân viên">
@@ -173,12 +184,12 @@ export function DocsTab() {
           <li>Bấm „+ Thêm“.</li>
           <li>Nhập tên.</li>
           <li>Chọn hình thức: Toàn thời gian, Bán thời gian hoặc Azubi.</li>
-          <li>Nhập số giờ vào ô „Giờ định mức / tháng“.</li>
+          <li>Nhập số giờ vào ô „Giờ / tháng“.</li>
           <li>Bấm „Lưu“.</li>
         </Steps>
         <p>
-          Ngày vào làm, ngày thôi làm, ngày làm trong tuần và Mẫu tuần nằm trong phần „Nâng cao“.
-          Phần này đóng khi bạn mở form. Dòng dưới chữ „Nâng cao“ cho biết các cài đặt đang có.
+          Form chia thành các phần: Thông tin, Giờ làm, Ngày nghỉ cố định, Ngày làm được và Thời gian
+          làm việc. Ngày vào làm và ngày thôi làm: bấm „+ Ngày vào làm / thôi làm“.
         </p>
         <p className="font-medium text-slate-900 pt-1">Ngày vào làm và ngày thôi làm:</p>
         <ul className="list-disc pl-5 space-y-1">
@@ -203,7 +214,16 @@ export function DocsTab() {
           Mẫu tuần cho một người một số ngày làm cố định mỗi tuần và một độ dài ca cố định. Mẫu tuần
           chỉ dùng cho Toàn thời gian và Bán thời gian. Azubi có quy tắc riêng.
         </p>
-        <p className="font-medium text-slate-900">Mẫu toàn thời gian của quán (40h mỗi tuần):</p>
+        <p className="font-medium text-slate-900">Toàn thời gian có các kiểu xếp ca sau:</p>
+        <ul className="list-disc pl-5 space-y-1">
+          {VOLLZEIT_KIEU.map((k) => (
+            <li key={k.id}>
+              <b>{k.label}</b>: {kieuText(k.pattern)}/tuần.
+            </li>
+          ))}
+        </ul>
+        <p>Kiểu 1 và Kiểu 2 là mẫu của quán. Mỗi ca trên 6h có thêm 30 phút nghỉ.</p>
+        <p className="font-medium text-slate-900">Chi tiết Kiểu 2:</p>
         <div className="overflow-x-auto">
           <table className="text-sm border-collapse">
             <thead className="bg-slate-50 text-slate-600">
@@ -240,22 +260,24 @@ export function DocsTab() {
         <Steps>
           <li>Mở tab Nhân viên.</li>
           <li>Bấm vào dòng của người đó.</li>
-          <li>Bấm „Nâng cao“.</li>
-          <li>Bấm „Dùng mẫu toàn thời gian“.</li>
+          <li>Trong phần „Giờ làm“, chọn một kiểu ở ô „Kiểu xếp ca“.</li>
           <li>Đọc dòng xem trước. Dòng này cho biết số ca, giờ công và giờ có mặt.</li>
           <li>Bấm „Lưu“.</li>
         </Steps>
         <p className="font-medium text-slate-900 pt-1">Dùng mẫu cho cả đội toàn thời gian:</p>
         <Steps>
           <li>Mở tab Nhân viên.</li>
-          <li>Bấm „Áp dụng mẫu cho cả đội toàn thời gian“.</li>
+          <li>
+            Chọn một kiểu trong khung xanh, rồi bấm „Áp dụng“. Lựa chọn „Theo cài đặt cũ“: người có
+            „tối đa 5 ngày/tuần“ nhận Kiểu 1, những người khác nhận Kiểu 2.
+          </li>
           <li>Bấm nút xác nhận.</li>
         </Steps>
         <p className="font-medium text-slate-900 pt-1">Cách ứng dụng xếp Mẫu tuần:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li>Mỗi người có ngày nghỉ cố định. Bạn có thể chọn ngày nghỉ. Nếu bạn không chọn, ứng dụng tự chọn.</li>
           <li>Ứng dụng chọn ngày nghỉ từ Thứ 2 đến Thứ 5. Ứng dụng chia đều ngày nghỉ cho cả đội.</li>
-          <li>Ứng dụng xếp ca dài (7h) vào ngày đông khách nhất.</li>
+          <li>Kiểu 2: ứng dụng xếp ca dài (7h) vào ngày đông khách nhất.</li>
           <li>Tuần đủ luôn có đúng giờ theo mẫu, ví dụ 40h.</li>
           <li>Tuần lẻ nhận giờ theo số ngày làm trong phần tuần đó. Hai tuần lẻ ở hai tháng cộng lại bằng một tuần đủ.</li>
           <li>Định mức tháng của người dùng mẫu 40h là tổng giờ của các tuần trong tháng.</li>
@@ -271,9 +293,10 @@ export function DocsTab() {
         </ul>
         <p className="font-medium text-slate-900 pt-1">Đổi sang nghỉ hè:</p>
         <Steps>
-          <li>Mở tab Azubi.</li>
-          <li>Bỏ dấu ở ô „Kỳ học“.</li>
+          <li>Mở tab Nhân viên. Bấm vào dòng của Azubi.</li>
+          <li>Bỏ dấu ở ô „Đang trong kỳ học“.</li>
           <li>Nhập giờ mỗi tuần.</li>
+          <li>Bấm „Lưu“.</li>
         </Steps>
         <Note>Dòng chữ màu cam cho biết lỗi. Sửa lỗi trước khi tạo lịch.</Note>
       </Section>
@@ -286,7 +309,26 @@ export function DocsTab() {
           <li>Một người làm tối đa 6 ngày liên tiếp.</li>
           <li>Mỗi người làm đúng định mức. Không thừa và không thiếu.</li>
           <li>Ca dài 4 đến 8 giờ công. Ca của Mẫu tuần dùng bước 30 phút.</li>
+          <li>
+            Số người có mặt không dưới mức tối thiểu. Mặc định: mọi lúc ít nhất 2 người, trưa 12–14h ít
+            nhất 3 người, tối 18–21h ít nhất 4 người (NATSU) hoặc 3 người (nava). Đổi mức này ở tab Cài
+            đặt, phần „Số người tối thiểu“.
+          </li>
         </ul>
+
+        <p className="font-medium text-slate-900 pt-2">Số người nên có (ứng dụng tự tính):</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>Mỗi ngày, ứng dụng cộng giờ có mặt của tất cả các ca.</li>
+          <li>
+            Ứng dụng nâng mức tối thiểu của cả ngày lên cùng một tỉ lệ, cho tới khi dùng hết số giờ đó.
+            Ngày nhiều giờ có nhiều người hơn trong giờ cao điểm.
+          </li>
+          <li>Ứng dụng dời giờ bắt đầu của ca trong cùng ngày. Độ dài ca và ngày làm không đổi.</li>
+          <li>Xem ở các dòng „ít nhất · nên“ cuối Bảng tháng. Ô đỏ có chữ „cần N“ là chỗ thiếu người.</li>
+        </ul>
+
+        <p className="font-medium text-slate-900 pt-2">Minijob (bán thời gian):</p>
+        <p>Ứng dụng ưu tiên xếp minijob vào thứ 7, Chủ nhật, ngày lễ và giờ cao điểm. Đây là luật mềm.</p>
 
         <p className="font-medium text-slate-900 pt-2">Trọng số theo thứ:</p>
         <p>

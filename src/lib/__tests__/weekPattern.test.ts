@@ -167,3 +167,29 @@ describe("Planer mit Mẫu tuần (Natsu: 40 h, 6 Tage, 6,5–7 h)", () => {
     }
   });
 });
+
+describe("Vollzeit Kiểu 1 (5 Tage × 8 h) neben Kiểu 2 (6 Tage, 6,5–7 h)", () => {
+  const KIEU1: WeekPattern = { days: 5, minHours: 8, maxHours: 8, weeklyHours: 40 };
+  const team: Employee[] = [
+    vz("K1A", KIEU1), vz("K1B", KIEU1), vz("K1C", KIEU1),
+    vz("K2A"), vz("K2B"),
+    tz("TZ1", 40), tz("TZ2", 40), tz("TZ3", 60),
+  ];
+
+  for (const [year, month] of [[2026, 10], [2026, 11], [2027, 2]] as const) {
+    it(`${month}/${year}: Kiểu 1 arbeitet nur 8-h-Schichten, volle Wochen 5 Tage = 40 h; alle erreichen ihr Soll`, () => {
+      const { shifts, soll } = plan(year, month, team);
+      for (const id of ["K1A", "K1B", "K1C"]) {
+        const proWoche = new Map<string, number[]>();
+        for (const s of shifts.filter((x) => x.employeeId === id)) {
+          expect(s.paidMinutes, `${id} ${s.date}`).toBe(8 * 60);
+          const k = patternWeekKey(s.date);
+          proWoche.set(k, [...(proWoche.get(k) ?? []), s.paidMinutes]);
+        }
+        for (const [woche, laengen] of proWoche) expect(laengen.length, `${id} ${woche}`).toBeLessThanOrEqual(5);
+      }
+      const employees = team.map((e) => ({ ...e, targetMinutes: soll.get(e.id)! }));
+      expect(validateSchedule(employees, shifts).errors).toEqual([]);
+    });
+  }
+});
